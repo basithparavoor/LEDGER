@@ -13,6 +13,10 @@ let PAGE_LIMIT_STUDENTS = 8;
 let PAGE_LIMIT_TX = 8;
 let studentPage = 1;
 let txPage = 1;
+let isFetchingStudents = false;
+let hasMoreStudents = true;
+let isFetchingTx = false;
+let hasMoreTx = true;
 
 // DYNAMIC STATE
 let systemLevels = [];
@@ -33,6 +37,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     showLoader(false);
 });
+
 
 // --- UTILITIES ---
 function showToast(message, type = 'success') {
@@ -300,13 +305,14 @@ async function checkUserRole(userId) {
         if (userRole === 'admin') {
             document.getElementById('add-student-btn').style.display = 'inline-flex';
             document.getElementById('admin-users-tab').style.display = 'flex';
+        } else if (userRole === 'staff') {
+            document.getElementById('staff-wallet-tab').style.display = 'flex';
         }
     } else {
         document.getElementById('user-role-badge').innerText = "STAFF";
         document.getElementById('display-user-name').innerText = currentUser.email.split('@')[0];
     }
 }
-
 // --- NAVIGATION & PAGINATION LOGIC ---
 function showSection(sectionId) {
     document.querySelectorAll('.data-section').forEach(sec => sec.classList.remove('active'));
@@ -370,42 +376,60 @@ function debouncedSearch(type) {
         if(type === 'student') { studentPage = 1; loadStudents(); }
     }, 400);
 }
-
 // --- STUDENTS ---
 async function loadStudents() {
-    const searchTerm = document.getElementById('search-student')?.value || '';
+    const searchTerm = document.getElementById('search-student')?.value.trim() || '';
     const levelFilter = document.getElementById('filter-level')?.value || '';
     
     // 1. Prepare main query
     let query = supabaseClient.from('students').select('*', { count: 'exact' }).order('created_at', { ascending: false });
-    if (searchTerm) query = query.ilike('name', `%${searchTerm}%`);
-    if (levelFilter) query = query.eq('level', levelFilter);
+    let statQuery = supabaseClient.from('students').select('balance');
     
+    // MULTI-FIELD SEARCH: Search across Name, Roll Number, or Contact Info
+    if (searchTerm) {
+        const searchFilter = `name.ilike.%${searchTerm}%,roll_number.ilike.%${searchTerm}%,contact_info.ilike.%${searchTerm}%`;
+        query = query.or(searchFilter);
+        statQuery = statQuery.or(searchFilter);
+    }
+    
+    if (levelFilter) {
+        query = query.eq('level', levelFilter);
+        statQuery = statQuery.eq('level', levelFilter);
+    }
+    
+    // Calculate Pagination Range
     const from = (studentPage - 1) * PAGE_LIMIT_STUDENTS;
     const to = from + PAGE_LIMIT_STUDENTS - 1;
     query = query.range(from, to);
 
-    // 2. Prepare stats query
-    let statQuery = supabaseClient.from('students').select('balance');
-    if (searchTerm) statQuery = statQuery.ilike('name', `%${searchTerm}%`);
-    if (levelFilter) statQuery = statQuery.eq('level', levelFilter);
-
-    // 3. Execute concurrently
+    showLoader(true);
+    // 2. Execute concurrently
     const [mainRes, statsRes] = await Promise.all([query, statQuery]);
+    showLoader(false);
+
     const { data, count, error } = mainRes;
     const { data: statsData } = statsRes;
 
     const tbody = document.getElementById('students-body');
     tbody.innerHTML = '';
     
+    if (error) {
+        // Catch 416 Out of Bounds error and auto-correct to page 1
+        if (error.code === 'PGRST103') {
+            studentPage = 1;
+            return loadStudents();
+        }
+        return showToast("Error loading students: " + error.message, "error");
+    }
     if (data) {
-        // Update stats instantly alongside data rendering
+        // Update Stats
         if(statsData) {
             const totalBal = statsData.reduce((sum, s) => sum + parseFloat(s.balance || 0), 0);
             document.getElementById('stat-total-students').innerText = statsData.length;
             document.getElementById('stat-total-balance').innerText = `₹${totalBal.toFixed(2)}`;
         }
 
+        // Update Pagination UI Info
         const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_STUDENTS) || 1;
         document.getElementById('student-page-info').innerText = `Page ${studentPage} of ${totalPages}`;
         
@@ -420,10 +444,16 @@ async function loadStudents() {
             const stdLevel = student.level || 'General';
             const delay = index * 0.05;
             
-            const adminControls = userRole === 'admin' ? `
-                <button class="btn-icon" title="Edit" onclick="openEditStudent('${student.id}', '${student.name.replace(/'/g, "\\'")}', '${student.roll_number || ''}', '${stdLevel}', '${student.contact_info || ''}')"><i class="fas fa-edit"></i></button>
-                <button class="btn-icon delete" title="Delete" onclick="deleteStudent('${student.id}')"><i class="fas fa-trash"></i></button>
-            ` : '';
+            let actionControls = '';
+            if (userRole === 'admin') {
+                actionControls = `
+                    <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem; margin-right: 5px;" onclick="viewStudentReport('${student.id}', '${student.name.replace(/'/g, "\\'")}', ${currentBalance})">
+                        <i class="fas fa-chart-line text-emerald"></i>
+                    </button>
+                    <button class="btn-icon" title="Edit" onclick="openEditStudent('${student.id}', '${student.name.replace(/'/g, "\\'")}', '${student.roll_number || ''}', '${stdLevel}', '${student.contact_info || ''}')"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon delete" title="Delete" onclick="deleteStudent('${student.id}')"><i class="fas fa-trash"></i></button>
+                `;
+            }
 
             const studentStr = encodeURIComponent(JSON.stringify(student));
 
@@ -440,19 +470,17 @@ async function loadStudents() {
                     <td data-label="Contact" class="mobile-hide">${student.contact_info || '-'}</td>
                     <td data-label="Balance" style="color: ${balanceColor}; font-weight: 800; font-size: 1.1rem;">₹${currentBalance.toFixed(2)}</td>
                     <td data-label="Actions" class="mobile-actions">
-                        <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem;" onclick="openAddTransaction('${student.id}')">
+                        <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem; margin-right: 5px;" onclick="openAddTransaction('${student.id}')">
                             <i class="fas fa-plus text-blue"></i>
                         </button>
-                        <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem; margin-right: 5px;" onclick="viewStudentReport('${student.id}', '${student.name.replace(/'/g, "\\'")}', ${currentBalance})">
-                            <i class="fas fa-chart-line text-emerald"></i>
-                        </button>
-                        ${adminControls}
+                        ${actionControls}
                     </td>
                 </tr>
             `;
         });
     }
 }
+
 
 async function addStudent() {
     const name = document.getElementById('new-std-name').value;
@@ -586,15 +614,7 @@ function downloadStudentReportPDF() {
 }
 
 // --- TRANSACTIONS ---
-function openAddTransaction(studentId) {
-    document.getElementById('tx-modal-title').innerText = "Process Transaction";
-    document.getElementById('tx-id').value = ""; 
-    document.getElementById('tx-student-id').value = studentId;
-    document.getElementById('tx-amount').value = "";
-    document.getElementById('tx-remarks').value = "";
-    document.getElementById('tx-pay-mode').value = "Cash";
-    openModal('modal-transaction');
-}
+
 
 function openEditTransaction(txId, type, mode, amount, remarks, date) {
     document.getElementById('tx-modal-title').innerText = "Edit Transaction";
@@ -608,37 +628,6 @@ function openEditTransaction(txId, type, mode, amount, remarks, date) {
     openModal('modal-transaction');
 }
 
-async function saveTransaction() {
-    const txId = document.getElementById('tx-id').value;
-    const studentId = document.getElementById('tx-student-id').value;
-    const type = document.getElementById('tx-type').value;
-    const mode = document.getElementById('tx-pay-mode').value;
-    const amount = parseFloat(document.getElementById('tx-amount').value);
-    const remarks = document.getElementById('tx-remarks').value;
-    const txDate = document.getElementById('tx-date').value;
-    if(!amount || amount <= 0) return showToast("Enter a valid amount!", "error");
-    
-    showLoader(true);
-    let error;
-    if (txId) {
-        const res = await supabaseClient.from('transactions').update({ transaction_type: type, payment_mode: mode, amount, remarks, transaction_date: txDate }).eq('id', txId);
-        error = res.error;
-    } else {
-        const res = await supabaseClient.from('transactions').insert([{ student_id: studentId, transaction_type: type, payment_mode: mode, amount, remarks, transaction_date: txDate, created_by: currentUser.id }]);
-        error = res.error;
-    }
-    showLoader(false);
-    
-    if (error) showToast("Error: " + error.message, "error");
-    else {
-        closeModal('modal-transaction');
-        showToast(txId ? "Ledger updated!" : "Transaction processed!");
-        loadTransactions();
-        if (document.getElementById('students-section').classList.contains('active')) {
-            loadStudents();
-        }
-    }
-}
 // In AUTHENTICATION section
 function logout() { 
     showConfirm(
@@ -683,49 +672,150 @@ function deleteTransaction(txId) {
         true
     );
 }
-async function loadTransactions() {
+
+function openAddTransaction(studentId) {
+    document.getElementById('tx-modal-title').innerText = "Process Transaction";
+    document.getElementById('tx-id').value = ""; 
+    document.getElementById('tx-student-id').value = studentId;
+    document.getElementById('tx-amount').value = "";
+    document.getElementById('tx-remarks').value = "";
+    document.getElementById('tx-pay-mode').value = "Cash";
+    document.getElementById('tx-sent-to-admin').checked = false;
+    
+    // Toggle checkbox based on type
+    const toggleHandover = () => {
+        const isCredit = document.getElementById('tx-type').value === 'credit';
+        document.getElementById('admin-handover-group').style.display = (userRole === 'staff' && isCredit) ? 'block' : 'none';
+    };
+    document.getElementById('tx-type').onchange = toggleHandover;
+    toggleHandover();
+    
+    openModal('modal-transaction');
+}
+
+async function saveTransaction() {
+    const txId = document.getElementById('tx-id').value;
+    const studentId = document.getElementById('tx-student-id').value;
+    const type = document.getElementById('tx-type').value;
+    const mode = document.getElementById('tx-pay-mode').value;
+    const amount = parseFloat(document.getElementById('tx-amount').value);
+    const remarks = document.getElementById('tx-remarks').value;
+    const txDate = document.getElementById('tx-date').value;
+    const sentToAdmin = document.getElementById('tx-sent-to-admin').checked;
+    
+    if(!amount || amount <= 0) return showToast("Enter a valid amount!", "error");
+    
+    // Logic: Only requires verification if staff ticks "Cash sent to Admin"
+    let txStatus = 'verified';
+    if (userRole === 'staff' && type === 'credit' && sentToAdmin) {
+        txStatus = 'pending';
+    }
+    
+    showLoader(true);
+    let error;
+    if (txId) {
+        const res = await supabaseClient.from('transactions').update({ 
+            transaction_type: type, payment_mode: mode, amount, remarks, transaction_date: txDate, status: txStatus, sent_to_admin: sentToAdmin 
+        }).eq('id', txId);
+        error = res.error;
+    } else {
+        const res = await supabaseClient.from('transactions').insert([{ 
+            student_id: studentId, transaction_type: type, payment_mode: mode, amount, remarks, transaction_date: txDate, created_by: currentUser.id, status: txStatus, sent_to_admin: sentToAdmin 
+        }]);
+        error = res.error;
+    }
+    showLoader(false);
+    
+    if (error) showToast("Error: " + error.message, "error");
+    else {
+        closeModal('modal-transaction');
+        showToast(txStatus === 'pending' ? "Sent to Admin for verification!" : "Transaction recorded locally!");
+        loadTransactions();
+    }
+}
+
+async function loadTransactions(isAppend = false) {
+    if (isFetchingTx) return;
+    isFetchingTx = true;
+
     const startDate = document.getElementById('filter-start-date').value;
     const endDate = document.getElementById('filter-end-date').value;
     const payMode = document.getElementById('filter-pay-mode').value;
     const txLevel = document.getElementById('filter-tx-level')?.value;
+    const txStatus = document.getElementById('filter-tx-status')?.value;
     
-    // Add !inner to the relationship to enable filtering by student attributes
-    let query = supabaseClient.from('transactions')
-        .select('*, students!inner(name, level)', { count: 'exact' })
-        .order('transaction_date', { ascending: false });
+    // Reset to page 1 if this is a fresh search or filter
+    if (!isAppend) {
+        txPage = 1;
+        hasMoreTx = true;
+    }
+    
+   let query = supabaseClient.from('transactions').select('*, students!inner(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });
         
+    if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
     if(startDate) query = query.gte('transaction_date', startDate);
     if(endDate) query = query.lte('transaction_date', endDate);
     if(payMode) query = query.eq('payment_mode', payMode);
     if(txLevel) query = query.eq('students.level', txLevel);
+    if(txStatus) query = query.eq('status', txStatus); 
     
     const from = (txPage - 1) * PAGE_LIMIT_TX;
     const to = from + PAGE_LIMIT_TX - 1;
     query = query.range(from, to);
     
-    const { data, count } = await query;
+    if (!isAppend) showLoader(true);
+    // Added 'error' to the destructuring
+    const { data, count, error } = await query;
+    if (!isAppend) showLoader(false);
+
+    // Added safety net for 416 Out of Bounds error
+    if (error) {
+        if (error.code === 'PGRST103') {
+            txPage = 1;
+            return loadTransactions(isAppend);
+        }
+        return showToast("Error loading transactions: " + error.message, "error");
+    }
+
     const tbody = document.getElementById('ledger-body');
-    tbody.innerHTML = '';
-    
+    if (!isAppend) tbody.innerHTML = '';
     if (data) {
+        if (data.length < PAGE_LIMIT_TX) {
+            hasMoreTx = false; // Stop auto-loading when out of data
+        }
+
         const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_TX) || 1;
         document.getElementById('tx-page-info').innerText = `Page ${txPage} of ${totalPages}`;
 
-        if(data.length === 0) {
+        if(data.length === 0 && !isAppend) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-muted);">No transactions found.</td></tr>`;
+            isFetchingTx = false;
             return;
         }
 
         data.forEach((tx, index) => {
+            // ... (keep all your existing status badge, action controls, and HTML generation code exactly as it is here) ...
+            
+            // NOTE: Keep your innerHTML append block for the transaction table exactly as you have it written in your current code.
             const badgeClass = tx.transaction_type === 'credit' ? 'badge-credit' : 'badge-debit';
             const displayMode = tx.payment_mode || 'Cash';
+            const currentStatus = tx.status || 'verified';
+            const statusBadgeClass = currentStatus === 'pending' ? 'badge-pending' : (currentStatus === 'rejected' ? 'badge-rejected' : 'badge-verified');
             const delay = index * 0.05;
             
-            // Add back the Edit function for transactions here
-            const adminControls = userRole === 'admin' ? `
-                <button class="btn-icon" title="Edit" onclick="openEditTransaction('${tx.id}', '${tx.transaction_type}', '${displayMode}', '${tx.amount}', '${tx.remarks}', '${tx.transaction_date}')"><i class="fas fa-edit"></i></button>
-                <button class="btn-icon delete" title="Delete" onclick="deleteTransaction('${tx.id}')"><i class="fas fa-trash"></i></button>
-            ` : '';
+            let actionControls = '';
+            if (userRole === 'admin') {
+                if (currentStatus === 'pending') {
+                    actionControls += `
+                        <button class="btn-icon" style="color: var(--success);" title="Verify" onclick="updateTxStatus('${tx.id}', 'verified')"><i class="fas fa-check-circle"></i></button>
+                        <button class="btn-icon" style="color: var(--danger);" title="Reject" onclick="updateTxStatus('${tx.id}', 'rejected')"><i class="fas fa-times-circle"></i></button>
+                    `;
+                }
+                actionControls += `
+                    <button class="btn-icon" title="Edit" onclick="openEditTransaction('${tx.id}', '${tx.transaction_type}', '${displayMode}', '${tx.amount}', '${tx.remarks}', '${tx.transaction_date}')"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon delete" title="Delete" onclick="deleteTransaction('${tx.id}')"><i class="fas fa-trash"></i></button>
+                `;
+            }
             
             const txStr = encodeURIComponent(JSON.stringify(tx));
 
@@ -734,35 +824,96 @@ async function loadTransactions() {
                     <td data-label="Select"><input type="checkbox" class="row-select" value="${tx.id}"></td>
                     <td data-label="Date" style="font-weight: 500;">${new Date(tx.transaction_date).toLocaleDateString('en-GB')}</td>
                     <td data-label="Student" style="font-weight: 700;">${tx.students.name}</td>
-                    <td data-label="Type & Mode">
-                        <div>
+                    <td data-label="Type, Mode & Status">
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
                             <span class="badge ${badgeClass}">${tx.transaction_type.toUpperCase()}</span>
-                            <span class="badge badge-mode" style="display:block; margin-top:4px;"><i class="fas fa-credit-card"></i> ${displayMode}</span>
+                            <span class="badge ${statusBadgeClass}">${currentStatus.toUpperCase()}</span>
+                            ${tx.sent_to_admin ? '<span class="badge badge-level"><i class="fas fa-arrow-right"></i> Admin</span>' : ''}
                         </div>
+                        <span class="badge badge-mode" style="display:inline-block; margin-top:4px;"><i class="fas fa-credit-card"></i> ${displayMode}</span>
                     </td>
                     <td data-label="Amount" style="font-weight: 800; font-size: 1.1rem; color: var(--text-main);">₹${parseFloat(tx.amount).toFixed(2)}</td>
                     <td data-label="Remarks" class="mobile-hide" style="color: var(--text-muted); font-size: 0.85rem;">${tx.remarks || '-'}</td>
-                    <td data-label="Actions" class="mobile-actions">
-                        ${adminControls}
+                    <td data-label="Actions" class="mobile-actions" style="display: flex; gap: 4px;">
+                        ${actionControls}
                     </td>
                 </tr>
             `;
         });
     }
+    
+    isFetchingTx = false;
 }
 
-// --- USERS & STAFF MANAGEMENT ---
+function updateTxStatus(txId, newStatus) {
+    const actionName = newStatus === 'verified' ? 'Verify' : 'Reject';
+    const actionColor = newStatus === 'verified' ? 'text-emerald' : 'text-danger';
+    
+    showConfirm(
+        `<i class="fas fa-shield-alt ${actionColor}"></i> ${actionName} Transaction`,
+        `Are you sure you want to ${actionName.toLowerCase()} this transaction?`,
+        async () => {
+            showLoader(true);
+            const { error } = await supabaseClient.from('transactions').update({ status: newStatus }).eq('id', txId);
+            showLoader(false);
+            
+            if (error) showToast("Error: " + error.message, "error");
+            else {
+                showToast(`Transaction ${newStatus}!`);
+                loadTransactions();
+                // Optionally reload students if balance is calculated via DB triggers
+                if (document.getElementById('students-section').classList.contains('active')) {
+                    loadStudents();
+                }
+            }
+        }
+    );
+}
+// --- USERS, STAFF BALANCES & SETTLEMENTS ---
 async function loadUsers() {
-    const { data, error } = await supabaseClient.from('profiles').select('*').order('created_at', { ascending: false });
+    const searchStaff = document.getElementById('search-staff')?.value.toLowerCase().trim() || '';
+    
+    const { data: profiles } = await supabaseClient.from('profiles').select('*').order('created_at', { ascending: false });
+    const { data: allTx } = await supabaseClient.from('transactions').select('created_by, transaction_type, amount, sent_to_admin, status');
+    const { data: allSettlements } = await supabaseClient.from('staff_settlements').select('staff_id, amount');
+
     const tbody = document.getElementById('users-body');
     tbody.innerHTML = '';
-    if(data) {
-        data.forEach((user, index) => {
+    
+    if(profiles) {
+        profiles.forEach((user, index) => {
+            const rawName = user.name || 'Unknown';
+            const safeName = rawName.replace(/'/g, "\\'");
+            const userEmail = user.email || 'N/A';
+            
+            // LOCAL SEARCH FILTER: Skip this user if they don't match the search query
+            if (searchStaff && !rawName.toLowerCase().includes(searchStaff) && !userEmail.toLowerCase().includes(searchStaff)) {
+                return;
+            }
+
+            let staffBalance = 0;
+            
+            if (allTx) {
+                allTx.filter(t => t.created_by === user.id && t.status === 'verified').forEach(t => {
+                    const amt = parseFloat(t.amount);
+                    if (t.transaction_type === 'credit' && !t.sent_to_admin) staffBalance += amt;
+                    if (t.transaction_type === 'debit') staffBalance -= amt;
+                });
+            }
+            
+            if (allSettlements) {
+                allSettlements.filter(s => s.staff_id === user.id).forEach(s => {
+                    staffBalance += parseFloat(s.amount);
+                });
+            }
+
+            const balColor = staffBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
             const delay = index * 0.05;
+            
             tbody.innerHTML += `
                 <tr class="row-enter" style="animation-delay: ${delay}s; ${user.role === 'suspended' ? 'opacity: 0.5;' : ''}">
-                    <td data-label="Name" style="font-weight: 700;">${user.name || 'Unknown'}</td>
-                    <td data-label="Identifier" style="font-weight: 500; color: var(--text-muted);">${user.email || 'N/A'}</td>
+                    <td data-label="Name" style="font-weight: 700;">${rawName}</td>
+                    <td data-label="Identifier" style="font-weight: 500; color: var(--text-muted);">${userEmail}</td>
                     <td data-label="Access Level">
                         <select class="premium-select" style="padding:0.4rem; margin:0;" onchange="updateUserRole('${user.id}', this.value)" ${user.id === currentUser.id ? 'disabled' : ''}>
                             <option value="staff" ${user.role === 'staff' ? 'selected' : ''}>Staff</option>
@@ -770,9 +921,12 @@ async function loadUsers() {
                             <option value="suspended" ${user.role === 'suspended' ? 'selected' : ''}>Suspended</option>
                         </select>
                     </td>
-                    <td data-label="Onboarded">${new Date(user.created_at).toLocaleDateString()}</td>
-                    <td data-label="Actions">
-                        ${user.id !== currentUser.id && user.role !== 'suspended' ? `<button class="btn-secondary" style="color:var(--danger);" onclick="revokeAccess('${user.id}')">Suspend</button>` : '-'}
+                    <td data-label="Wallet Balance" style="font-weight: 800; color: ${balColor};">
+                        ₹${staffBalance.toFixed(2)}
+                    </td>
+                    <td data-label="Actions" style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                        <button class="btn-secondary" title="View Ledger" onclick="openStaffLedger('${user.id}', '${safeName}')"><i class="fas fa-file-invoice text-blue"></i></button>
+                        ${staffBalance < 0 ? `<button class="btn-secondary" title="Settle Balance" onclick="openSettleModal('${user.id}', '${safeName}')"><i class="fas fa-hand-holding-usd text-emerald"></i></button>` : ''}
                     </td>
                 </tr>
             `;
@@ -780,30 +934,204 @@ async function loadUsers() {
     }
 }
 
+function openSettleModal(staffId, staffName) {
+    document.getElementById('settle-staff-id').value = staffId;
+    document.getElementById('settle-staff-name').innerText = staffName;
+    document.getElementById('settle-amount').value = '';
+    document.getElementById('settle-details').value = '';
+    openModal('modal-settle-staff');
+}
+
+async function saveStaffSettlement() {
+    const staffId = document.getElementById('settle-staff-id').value;
+    const amount = parseFloat(document.getElementById('settle-amount').value);
+    const details = document.getElementById('settle-details').value;
+    
+    if(!amount || amount <= 0) return showToast("Enter a valid amount!", "error");
+    
+    showLoader(true);
+    const { error } = await supabaseClient.from('staff_settlements').insert([{
+        staff_id: staffId, amount: amount, payment_details: details, created_by: currentUser.id
+    }]);
+    showLoader(false);
+    
+    if(error) showToast("Error: " + error.message, "error");
+    else {
+        closeModal('modal-settle-staff');
+        showToast("Settlement recorded successfully!");
+        loadUsers();
+    }
+}
+
+// --- STAFF LEDGER EXPORT & VIEW ---
+let currentStaffLedgerData = [];
+let currentStaffLedgerName = '';
+
+async function openStaffLedger(targetUserId, targetUserName = '') {
+    const targetId = targetUserId === 'me' ? currentUser.id : targetUserId;
+    currentStaffLedgerName = targetUserId === 'me' ? currentProfileName : targetUserName;
+    
+    document.getElementById('staff-ledger-title').innerText = targetUserId === 'me' ? 'My Wallet' : `${currentStaffLedgerName}'s Wallet`;
+    
+    showLoader(true);
+    
+    // Fetch Transactions and Settlements
+    const [txRes, setRes] = await Promise.all([
+        supabaseClient.from('transactions').select('*, students(name)').eq('created_by', targetId).order('transaction_date', { ascending: false }),
+        supabaseClient.from('staff_settlements').select('*').eq('staff_id', targetId).order('created_at', { ascending: false })
+    ]);
+    
+    showLoader(false);
+    if(txRes.error || setRes.error) return showToast("Error loading ledger.", "error");
+
+    const timeline = document.getElementById('staff-ledger-timeline');
+    timeline.innerHTML = '';
+    currentStaffLedgerData = [];
+    let runningBalance = 0;
+
+    // Combine and sort events
+    txRes.data.forEach(tx => {
+        if(tx.status !== 'verified') return;
+        const amt = parseFloat(tx.amount);
+        let impact = 0;
+        
+        if (tx.transaction_type === 'credit' && !tx.sent_to_admin) impact = amt;
+        if (tx.transaction_type === 'debit') impact = -amt;
+        
+        if (impact !== 0) {
+            runningBalance += impact;
+            currentStaffLedgerData.push({
+                date: new Date(tx.transaction_date),
+                title: `Student: ${tx.students?.name || 'Unknown'}`,
+                desc: `${tx.transaction_type.toUpperCase()} • ${tx.payment_mode}`,
+                impact: impact
+            });
+        }
+    });
+
+    setRes.data.forEach(s => {
+        const amt = parseFloat(s.amount);
+        runningBalance += amt;
+        currentStaffLedgerData.push({
+            date: new Date(s.created_at),
+            title: `Reimbursement from Admin`,
+            desc: `Ref: ${s.payment_details || 'N/A'}`,
+            impact: amt
+        });
+    });
+
+    // Sort combined data newest first
+    currentStaffLedgerData.sort((a, b) => b.date - a.date);
+
+    // Update UI
+    const balEl = document.getElementById('staff-ledger-balance');
+    balEl.innerText = `₹${runningBalance.toFixed(2)}`;
+    balEl.style.color = runningBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
+
+    if(currentStaffLedgerData.length === 0) {
+        timeline.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">No wallet activity found.</div>';
+    } else {
+        currentStaffLedgerData.forEach(item => {
+            const isPositive = item.impact > 0;
+            const color = isPositive ? 'var(--success)' : 'var(--danger)';
+            const icon = item.title.includes('Reimbursement') ? 'fa-hand-holding-usd' : (isPositive ? 'fa-arrow-down' : 'fa-arrow-up');
+            const sign = isPositive ? '+' : '';
+
+            timeline.innerHTML += `
+                <div style="display:flex; align-items:center; justify-content:space-between; padding: 1rem; background: var(--surface-solid); border-radius: 12px; margin-bottom: 0.8rem; border-left: 4px solid ${color};">
+                    <div style="display:flex; align-items:center; gap: 1rem;">
+                        <div style="width: 40px; height: 40px; border-radius: 50%; background: white; display:flex; justify-content:center; align-items:center; color:${color}; box-shadow: var(--shadow-soft);">
+                            <i class="fas ${icon}"></i>
+                        </div>
+                        <div>
+                            <p style="font-weight: 700; color: var(--text-main); font-size: 0.95rem;">${item.title}</p>
+                            <p style="font-size: 0.75rem; color: var(--text-muted);">${item.date.toLocaleDateString('en-GB')} • ${item.desc}</p>
+                        </div>
+                    </div>
+                    <div style="text-align:right;">
+                        <p style="font-weight: 800; font-size: 1.1rem; color: ${color};">${sign}₹${item.impact.toFixed(2)}</p>
+                    </div>
+                </div>
+            `;
+        });
+    }
+    openModal('modal-staff-ledger');
+}
+
+function downloadStaffLedgerPDF() {
+    if(currentStaffLedgerData.length === 0) return showToast("No data to export", "warning");
+    
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    
+    doc.setFontSize(18);
+    doc.text(`${currentStaffLedgerName} - Wallet Statement`, 14, 20);
+    doc.setFontSize(10);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+
+    const tableData = currentStaffLedgerData.map(item => [
+        item.date.toLocaleDateString('en-GB'),
+        item.title,
+        item.desc,
+        `Rs. ${item.impact.toFixed(2)}`
+    ]);
+
+    doc.autoTable({
+        startY: 35,
+        head: [['Date', 'Description', 'Details', 'Impact']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [37, 99, 235] }
+    });
+
+    doc.save(`Wallet_Statement_${currentStaffLedgerName.replace(/\s+/g, '_')}.pdf`);
+    showToast("Statement Downloaded!");
+}
+
 async function addStaff() {
-    const name = document.getElementById('new-staff-name').value;
-    const email = document.getElementById('new-staff-email').value;
+    const name = document.getElementById('new-staff-name').value.trim();
+    const email = document.getElementById('new-staff-email').value.trim();
     const password = document.getElementById('new-staff-pass').value;
     const role = document.getElementById('new-staff-role').value;
     
     if(!name || !email || !password) return showToast("All fields are required.", "error");
+    if(password.length < 6) return showToast("Password must be at least 6 characters.", "error"); // Prevents 422 Error
     
     showLoader(true);
+    
+    // 1. Create User Auth
     const { data, error } = await supabaseClient.auth.signUp({ 
         email, 
         password,
         options: { data: { name: name, role: role } }
     });
     
-    showLoader(false);
-
     if(error) {
-        showToast("Error: " + error.message, "error");
+        showLoader(false);
+        return showToast("Signup Error: " + error.message, "error");
+    }
+
+    // 2. Safely Create Profile only if Auth succeeded
+    if (data && data.user) {
+        const { error: profileError } = await supabaseClient.from('profiles').insert([{ 
+            id: data.user.id, 
+            email: email, 
+            name: name, 
+            role: role 
+        }]);
+        
+        showLoader(false);
+
+        if(profileError) {
+            showToast("User created, but profile failed: " + profileError.message, "warning");
+        } else {
+            closeModal('modal-add-staff');
+            showToast("Staff Member Provisioned!");
+            loadUsers();
+        }
     } else {
-        closeModal('modal-add-staff');
-        await supabaseClient.from('profiles').insert([{ id: data.user.id, email: email, name: name, role: role }]);
-        showToast("Staff Member Provisioned!");
-        loadUsers();
+        showLoader(false);
+        showToast("Signup failed. Check email or Supabase settings.", "error");
     }
 }
 

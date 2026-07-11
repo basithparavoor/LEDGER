@@ -46,6 +46,7 @@
             <ul class="nav-links">
                 <li onclick="showSection('students')" class="active-nav"><i class="fas fa-user-graduate"></i> Directory</li>
                 <li onclick="showSection('transactions')"><i class="fas fa-file-invoice-dollar"></i> Ledger</li>
+                <li id="staff-wallet-tab" onclick="openStaffLedger('me')" style="display:none;"><i class="fas fa-wallet"></i> My Wallet</li>
                 <li id="admin-users-tab" onclick="showSection('users')" style="display:none;"><i class="fas fa-shield-alt"></i> Access Control</li>
             </ul>
             <div class="sidebar-footer">
@@ -105,9 +106,9 @@
                             <input type="text" placeholder="Search by name..." id="search-student" oninput="debouncedSearch('student')">
                         </div>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <select class="premium-select dynamic-level-dropdown" id="filter-level" onchange="loadStudents()" style="margin-bottom:0; min-width: 150px;">
-                                <option value="">All Levels</option>
-                            </select>
+                            <select class="premium-select dynamic-level-dropdown" id="filter-level" onchange="studentPage = 1; loadStudents()" style="margin-bottom:0; min-width: 150px;">
+    <option value="">All Levels</option>
+</select>
                             <button class="btn-icon" title="Manage Levels" onclick="openLevelManager()"><i class="fas fa-cog"></i></button>
                         </div>
                     </div>
@@ -151,16 +152,22 @@
             <section id="transactions-section" class="data-section">
                 <div class="toolbar flex-wrap">
                     <div class="toolbar-group">
-    <input type="date" id="filter-start-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
-    <input type="date" id="filter-end-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
-    <select class="premium-select dynamic-level-dropdown" id="filter-tx-level" onchange="loadTransactions()" style="margin-bottom:0;">
+    <input type="date" id="filter-start-date" class="premium-input" style="margin-bottom:0;" onchange="txPage = 1; loadTransactions()">
+    <input type="date" id="filter-end-date" class="premium-input" style="margin-bottom:0;" onchange="txPage = 1; loadTransactions()">
+    <select class="premium-select dynamic-level-dropdown" id="filter-tx-level" onchange="txPage = 1; loadTransactions()" style="margin-bottom:0;">
         <option value="">All Levels</option>
     </select>
-    <select class="premium-select" id="filter-pay-mode" onchange="loadTransactions()" style="margin-bottom:0;">
+    <select class="premium-select" id="filter-pay-mode" onchange="txPage = 1; loadTransactions()" style="margin-bottom:0;">
         <option value="">All Modes</option>
         <option value="Cash">Cash</option>
         <option value="Bank Transfer">Bank Transfer</option>
         <option value="Card/UPI">Card / UPI</option>
+    </select>
+    <select class="premium-select" id="filter-tx-status" onchange="txPage = 1; loadTransactions()" style="margin-bottom:0;">
+        <option value="">All Statuses</option>
+        <option value="pending">Pending Verification</option>
+        <option value="verified">Verified</option>
+        <option value="rejected">Rejected</option>
     </select>
 </div>
                     <div class="toolbar-group">
@@ -175,7 +182,7 @@
                                 <th style="width: 40px;"><input type="checkbox" onclick="toggleAllCheckboxes('ledger-body', this)"></th>
                                 <th>Date</th>
                                 <th>Student</th>
-                                <th>Type & Mode</th>
+                                <th>Type, Mode & Status</th>
                                 <th>Amount</th>
                                 <th class="mobile-hide">Remarks</th>
                                 <th>Actions</th>
@@ -322,7 +329,12 @@
             <input type="number" id="tx-amount" class="premium-input" style="font-size: 1.25rem; font-weight: 700; color: var(--primary);" placeholder="Amount (₹)">
             <input type="date" id="tx-date" class="premium-input">
             <textarea id="tx-remarks" class="premium-input" placeholder="Remarks (Optional)" rows="2"></textarea>
-            
+            <div class="premium-form-group" id="admin-handover-group" style="display:none; margin-top:1rem;">
+    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; background: var(--surface-solid); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border);">
+        <input type="checkbox" id="tx-sent-to-admin" style="width:18px; height:18px; accent-color:var(--primary);">
+        <span style="font-size:0.9rem; color:var(--text-main); font-weight:600;">Cash sent to Administrator</span>
+    </label>
+</div>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-transaction')">Cancel</button>
                 <button class="btn-primary" onclick="saveTransaction()">Save Ledger</button>
@@ -425,6 +437,48 @@
             </div>
         </div>
     </div>
+
+    <!-- Staff Settlement Modal (Admin Only) -->
+<div id="modal-settle-staff" class="modal-overlay" style="z-index: 1010;">
+    <div class="modal-content" style="max-width: 400px;">
+        <h3><i class="fas fa-hand-holding-usd text-emerald"></i> Settle Staff Balance</h3>
+        <input type="hidden" id="settle-staff-id">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Record a payment given to <span id="settle-staff-name" style="font-weight:bold;"></span> to clear their negative balance.</p>
+        <input type="number" id="settle-amount" class="premium-input" placeholder="Amount (₹)" style="font-size: 1.25rem; font-weight: 700; color: var(--primary);">
+        <textarea id="settle-details" class="premium-input" placeholder="Payment Details / Reference ID" rows="2"></textarea>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeModal('modal-settle-staff')">Cancel</button>
+            <button class="btn-primary" onclick="saveStaffSettlement()">Record Payment</button>
+        </div>
+    </div>
+</div>
+
+<!-- Staff Wallet / Ledger Modal (For both Staff and Admin) -->
+<div id="modal-staff-ledger" class="modal-overlay">
+    <div class="modal-content large">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
+            <h3><i class="fas fa-wallet text-blue"></i> <span id="staff-ledger-title">My Wallet</span></h3>
+            <button class="btn-icon" onclick="closeModal('modal-staff-ledger')"><i class="fas fa-times"></i></button>
+        </div>
+        
+        <div class="stat-card" style="padding: 1.5rem; background: var(--surface-solid); margin-bottom: 1.5rem;">
+            <div class="stat-details">
+                <p>Current Cash on Hand (Wallet Balance)</p>
+                <h3 id="staff-ledger-balance" style="font-size: 1.8rem; font-weight: 800;">₹0.00</h3>
+            </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+            <h4 style="color: var(--text-muted); text-transform:uppercase; font-size: 0.8rem; letter-spacing:1px;">Activity History</h4>
+            <button class="btn-primary" style="padding: 0.5rem 1rem; font-size:0.8rem;" onclick="downloadStaffLedgerPDF()"><i class="fas fa-file-pdf"></i> Export PDF</button>
+        </div>
+
+        <div style="max-height: 350px; overflow-y: auto; padding-right: 0.5rem;" id="staff-ledger-timeline">
+            <!-- Populated via JS -->
+        </div>
+    </div>
+</div>
+
     <script src="app.js"></script>
 </body>
 </html>
