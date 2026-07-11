@@ -99,6 +99,19 @@ button { font-family: inherit; }
 .nav-links li { padding: 1rem 1.2rem; margin-bottom: 0.5rem; border-radius: var(--radius-md); cursor: pointer; font-weight: 600; color: var(--text-muted); transition: all 0.2s; display: flex; align-items: center; gap: 1rem; }
 .nav-links li:hover, .nav-links li.active-nav { background: var(--sidebar-hover); color: var(--primary); transform: translateX(4px); }
 .sidebar-footer { padding: 1.5rem; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); }
+.sidebar { 
+    width: 280px; 
+    background: var(--sidebar); 
+    color: var(--text-main); 
+    display: flex; 
+    flex-direction: column; 
+    transition: transform 0.3s; 
+    flex-shrink: 0; 
+    z-index: 50; 
+    border-right: 1px solid var(--border);
+    overflow-y: auto; /* Enable vertical scrolling */
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+}
 .user-profile-mini { display: flex; align-items: center; gap: 10px; }
 .user-profile-mini .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--blue-light); color: var(--primary); display: flex; justify-content: center; align-items: center; font-size: 0.9rem; border: 1px solid var(--primary-glow); }
 .user-info { display: flex; flex-direction: column; }
@@ -227,4 +240,48 @@ input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-colo
     /* Hide non-essential columns on mobile to create a compact tile */
     .mobile-hide { display: none !important; }
     .mobile-actions { z-index: 2; position: relative; }
+    
+    /* Ensure modals don't overflow the screen and can scroll */
+    .modal-content {
+        padding: 1.5rem;
+        margin: 1rem;
+        width: calc(100% - 2rem);
+        max-height: 85vh;
+        overflow-y: auto;
+    }
+
+    /* Wrap the top header for very small screens */
+    .topbar {
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    
+    .topbar-left {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    /* Stretch toolbar filters to use full width on mobile */
+    .toolbar-group {
+        width: 100%;
+        justify-content: stretch;
+    }
+    
+    .toolbar-group > * {
+        flex: 1;
+    }
+    
+    .toolbar-group input[type="date"], 
+    .toolbar-group select {
+        width: 100%;
+    }
+
+    /* Improve tap targets for mobile icons */
+    .btn-icon {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
 }

@@ -14,13 +14,14 @@ let PAGE_LIMIT_TX = 8;
 let studentPage = 1;
 let txPage = 1;
 
-// LOCAL STORAGE LEVELS
-let systemLevels = JSON.parse(localStorage.getItem('LEDGER_levels')) || ['Freshman', 'Sophomore', 'Junior', 'Senior', 'Post-Grad'];
+// DYNAMIC STATE
+let systemLevels = [];
 
 // --- SESSION RESTORE ---
 window.addEventListener('DOMContentLoaded', async () => {
     showLoader(true);
-    renderLevelDropdowns();
+    await loadLevels(); // Fetch levels from DB first
+    
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (session) {
         currentUser = session.user;
@@ -67,8 +68,17 @@ function toggleAllCheckboxes(tbodyId, masterCheckbox) {
     const checkboxes = document.querySelectorAll(`#${tbodyId} input[type="checkbox"].row-select`);
     checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
 }
-
 // --- LEVEL MANAGEMENT ---
+async function loadLevels() {
+    const { data, error } = await supabaseClient.from('levels').select('name').order('created_at');
+    if (data) {
+        systemLevels = data.map(l => l.name);
+        renderLevelDropdowns();
+    } else if (error) {
+        console.error("Failed to load levels:", error);
+    }
+}
+
 function renderLevelDropdowns() {
     const dropdowns = document.querySelectorAll('.dynamic-level-dropdown');
     dropdowns.forEach(select => {
@@ -83,35 +93,49 @@ function renderLevelDropdowns() {
 function openLevelManager() {
     const list = document.getElementById('level-list');
     list.innerHTML = '';
-    systemLevels.forEach((level, index) => {
+    systemLevels.forEach((level) => {
+        // Changed deleteLevel parameter from index to the actual string name
         list.innerHTML += `
             <li style="display:flex; justify-content:space-between; align-items:center; padding: 0.8rem; background: var(--surface-solid); border-radius: 8px; border: 1px solid var(--border);">
                 <span style="font-weight: 600;">${level}</span>
-                <button class="btn-icon delete" style="width:28px; height:28px; padding:0;" onclick="deleteLevel(${index})"><i class="fas fa-trash" style="font-size:0.8rem;"></i></button>
+                <button class="btn-icon delete" style="width:28px; height:28px; padding:0;" onclick="deleteLevel('${level}')"><i class="fas fa-trash" style="font-size:0.8rem;"></i></button>
             </li>
         `;
     });
     openModal('modal-manage-levels');
 }
 
-function addLevel() {
+async function addLevel() {
     const input = document.getElementById('new-level-input');
     const val = input.value.trim();
     if(val && !systemLevels.includes(val)) {
-        systemLevels.push(val);
-        localStorage.setItem('LEDGER_levels', JSON.stringify(systemLevels));
-        input.value = '';
-        renderLevelDropdowns();
-        openLevelManager();
-        showToast("Level Added");
+        showLoader(true);
+        const { error } = await supabaseClient.from('levels').insert([{ name: val }]);
+        showLoader(false);
+        
+        if (error) {
+            showToast("Failed to add level: " + error.message, "error");
+        } else {
+            input.value = '';
+            await loadLevels(); // Refresh from DB
+            openLevelManager();
+            showToast("Level Added");
+        }
     }
 }
 
-function deleteLevel(index) {
-    systemLevels.splice(index, 1);
-    localStorage.setItem('LEDGER_levels', JSON.stringify(systemLevels));
-    renderLevelDropdowns();
-    openLevelManager();
+async function deleteLevel(levelName) {
+    showLoader(true);
+    const { error } = await supabaseClient.from('levels').delete().eq('name', levelName);
+    showLoader(false);
+    
+    if (error) {
+        showToast("Failed to delete level: " + error.message, "error");
+    } else {
+        await loadLevels(); // Refresh from DB
+        openLevelManager();
+        showToast("Level Deleted");
+    }
 }
 
 // --- MOBILE DETAILS MODAL ---
