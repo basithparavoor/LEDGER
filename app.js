@@ -227,6 +227,23 @@ function openMobileDetails(event, type, dataStr) {
     
     if(type === 'student') {
         const balanceColor = parseFloat(data.balance || 0) < 0 ? 'var(--danger)' : 'var(--text-main)';
+        
+        // Build Admin-specific action controls
+        let actionControls = '';
+        if (userRole === 'admin') {
+            actionControls = `
+                <button class="btn-secondary" style="padding: 0.5rem;" onclick="closeModal('modal-mobile-detail'); viewStudentReport('${data.id}', '${data.name.replace(/'/g, "\\'")}', ${parseFloat(data.balance || 0)})">
+                    <i class="fas fa-chart-line text-emerald"></i> Report
+                </button>
+                <button class="btn-icon" onclick="closeModal('modal-mobile-detail'); openEditStudent('${data.id}', '${data.name.replace(/'/g, "\\'")}', '${data.roll_number || ''}', '${data.level || 'General'}', '${data.contact_info || ''}')">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn-icon delete" onclick="closeModal('modal-mobile-detail'); deleteStudent('${data.id}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+        }
+
         container.innerHTML = `
             <div style="padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Name & ID</p>
@@ -241,12 +258,35 @@ function openMobileDetails(event, type, dataStr) {
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Contact Info</p>
                 <p style="font-weight:600;">${data.contact_info || 'N/A'}</p>
             </div>
-            <div>
+            <div style="padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Current Balance</p>
                 <p style="font-weight:800; font-size:1.4rem; color:${balanceColor};">₹${parseFloat(data.balance || 0).toFixed(2)}</p>
             </div>
+            <!-- INJECTED MOBILE ACTIONS -->
+            <div style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn-primary" style="padding: 0.5rem;" onclick="closeModal('modal-mobile-detail'); openAddTransaction('${data.id}')">
+                    <i class="fas fa-plus"></i> Transaction
+                </button>
+                ${actionControls}
+            </div>
         `;
     } else if (type === 'tx') {
+        
+        // Build Admin-specific transaction controls
+        let txControls = '';
+        if (userRole === 'admin') {
+            if (data.status === 'pending') {
+                txControls += `
+                    <button class="btn-icon" style="color: var(--success);" onclick="closeModal('modal-mobile-detail'); updateTxStatus('${data.id}', 'verified')"><i class="fas fa-check-circle"></i></button>
+                    <button class="btn-icon" style="color: var(--danger);" onclick="closeModal('modal-mobile-detail'); updateTxStatus('${data.id}', 'rejected')"><i class="fas fa-times-circle"></i></button>
+                `;
+            }
+            txControls += `
+                <button class="btn-icon" onclick="closeModal('modal-mobile-detail'); openEditTransaction('${data.id}', '${data.transaction_type}', '${data.payment_mode || 'Cash'}', '${data.amount}', '${data.remarks}', '${data.transaction_date}')"><i class="fas fa-edit"></i></button>
+                <button class="btn-icon delete" onclick="closeModal('modal-mobile-detail'); deleteTransaction('${data.id}')"><i class="fas fa-trash"></i></button>
+            `;
+        }
+
         container.innerHTML = `
             <div style="padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Student</p>
@@ -261,9 +301,13 @@ function openMobileDetails(event, type, dataStr) {
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Amount</p>
                 <p style="font-weight:800; font-size:1.4rem; color:var(--primary);">₹${parseFloat(data.amount).toFixed(2)}</p>
             </div>
-            <div>
+            <div style="padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Remarks</p>
                 <p style="font-size:0.95rem; color:var(--text-main);">${data.remarks || 'None'}</p>
+            </div>
+             <!-- INJECTED MOBILE ACTIONS -->
+            <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                ${txControls}
             </div>
         `;
     }
