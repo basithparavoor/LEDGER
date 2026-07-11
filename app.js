@@ -90,21 +90,6 @@ function renderLevelDropdowns() {
     });
 }
 
-function openLevelManager() {
-    const list = document.getElementById('level-list');
-    list.innerHTML = '';
-    systemLevels.forEach((level) => {
-        // Changed deleteLevel parameter from index to the actual string name
-        list.innerHTML += `
-            <li style="display:flex; justify-content:space-between; align-items:center; padding: 0.8rem; background: var(--surface-solid); border-radius: 8px; border: 1px solid var(--border);">
-                <span style="font-weight: 600;">${level}</span>
-                <button class="btn-icon delete" style="width:28px; height:28px; padding:0;" onclick="deleteLevel('${level}')"><i class="fas fa-trash" style="font-size:0.8rem;"></i></button>
-            </li>
-        `;
-    });
-    openModal('modal-manage-levels');
-}
-
 async function addLevel() {
     const input = document.getElementById('new-level-input');
     const val = input.value.trim();
@@ -124,18 +109,106 @@ async function addLevel() {
     }
 }
 
-async function deleteLevel(levelName) {
+function openLevelManager() {
+    const list = document.getElementById('level-list');
+    list.innerHTML = '';
+    systemLevels.forEach((level) => {
+        list.innerHTML += `
+            <li style="display:flex; justify-content:space-between; align-items:center; padding: 0.8rem; background: var(--surface-solid); border-radius: 8px; border: 1px solid var(--border);">
+                <span style="font-weight: 600;">${level}</span>
+                <div>
+                    <button class="btn-icon" style="width:28px; height:28px; padding:0; margin-right:5px;" onclick="openEditLevel('${level}')"><i class="fas fa-edit" style="font-size:0.8rem;"></i></button>
+                    <button class="btn-icon delete" style="width:28px; height:28px; padding:0;" onclick="deleteLevelPrompt('${level}')"><i class="fas fa-trash" style="font-size:0.8rem;"></i></button>
+                </div>
+            </li>
+        `;
+    });
+    openModal('modal-manage-levels');
+}
+
+function deleteLevelPrompt(levelName) {
+    showConfirm(
+        '<i class="fas fa-trash text-danger"></i> Delete Level',
+        `Are you sure you want to delete the level "${levelName}"?`,
+        async () => {
+            showLoader(true);
+            const { error } = await supabaseClient.from('levels').delete().eq('name', levelName);
+            showLoader(false);
+            
+            if (error) showToast("Failed to delete level: " + error.message, "error");
+            else {
+                await loadLevels();
+                openLevelManager();
+                showToast("Level Deleted");
+            }
+        },
+        true
+    );
+}
+
+function openEditLevel(oldName) {
+    document.getElementById('edit-level-old-name').value = oldName;
+    document.getElementById('edit-level-new-name').value = oldName;
+    openModal('modal-edit-level');
+}
+
+async function saveLevelEdit() {
+    const oldName = document.getElementById('edit-level-old-name').value;
+    const newName = document.getElementById('edit-level-new-name').value.trim();
+    
+    if(!newName || newName === oldName) return closeModal('modal-edit-level');
+    if(systemLevels.includes(newName)) return showToast("Level name already exists!", "error");
+
     showLoader(true);
-    const { error } = await supabaseClient.from('levels').delete().eq('name', levelName);
+    
+    // 1. Update the level name in the levels table
+    const { error: levelErr } = await supabaseClient.from('levels').update({ name: newName }).eq('name', oldName);
+    
+    if (levelErr) {
+        showLoader(false);
+        return showToast("Failed to rename level: " + levelErr.message, "error");
+    }
+    
+    // 2. Cascade update to all students assigned to the old level
+    const { error: studentErr } = await supabaseClient.from('students').update({ level: newName }).eq('level', oldName);
+    
     showLoader(false);
     
-    if (error) {
-        showToast("Failed to delete level: " + error.message, "error");
+    if (studentErr) {
+        showToast("Level renamed, but failed to update some students.", "warning");
     } else {
-        await loadLevels(); // Refresh from DB
-        openLevelManager();
-        showToast("Level Deleted");
+        showToast("Level and students updated successfully!");
     }
+    
+    closeModal('modal-edit-level');
+    await loadLevels();
+    openLevelManager();
+    
+    // Refresh student view to show the new level names instantly
+    if (document.getElementById('students-section').classList.contains('active')) {
+        loadStudents();
+    }
+}
+
+function showConfirm(title, message, onConfirm, isDanger = false) {
+    document.getElementById('confirm-title').innerHTML = title;
+    document.getElementById('confirm-message').innerText = message;
+    
+    const btn = document.getElementById('confirm-action-btn');
+    if (isDanger) {
+        btn.style.background = 'var(--danger)';
+        btn.style.boxShadow = '0 4px 6px -1px rgba(239, 68, 68, 0.2)';
+    } else {
+        btn.style.background = 'var(--primary)';
+        btn.style.boxShadow = '0 4px 6px -1px var(--primary-glow)';
+    }
+    
+    btn.onclick = () => {
+        closeModal('modal-confirm');
+        onConfirm();
+    };
+    
+    openModal('modal-confirm');
 }
 
 // --- MOBILE DETAILS MODAL ---
@@ -213,12 +286,6 @@ async function login() {
     document.getElementById('tx-date').valueAsDate = new Date();
     await loadStudents();
     showLoader(false);
-}
-
-async function logout() { 
-    if(!confirm("Are you sure you want to securely log out of the LEDGER Portal?")) return;
-    await supabaseClient.auth.signOut(); 
-    location.reload(); 
 }
 
 async function checkUserRole(userId) {
@@ -309,8 +376,8 @@ async function loadStudents() {
     const searchTerm = document.getElementById('search-student')?.value || '';
     const levelFilter = document.getElementById('filter-level')?.value || '';
     
+    // 1. Prepare main query
     let query = supabaseClient.from('students').select('*', { count: 'exact' }).order('created_at', { ascending: false });
-    
     if (searchTerm) query = query.ilike('name', `%${searchTerm}%`);
     if (levelFilter) query = query.eq('level', levelFilter);
     
@@ -318,12 +385,27 @@ async function loadStudents() {
     const to = from + PAGE_LIMIT_STUDENTS - 1;
     query = query.range(from, to);
 
-    const { data, count, error } = await query;
+    // 2. Prepare stats query
+    let statQuery = supabaseClient.from('students').select('balance');
+    if (searchTerm) statQuery = statQuery.ilike('name', `%${searchTerm}%`);
+    if (levelFilter) statQuery = statQuery.eq('level', levelFilter);
+
+    // 3. Execute concurrently
+    const [mainRes, statsRes] = await Promise.all([query, statQuery]);
+    const { data, count, error } = mainRes;
+    const { data: statsData } = statsRes;
+
     const tbody = document.getElementById('students-body');
     tbody.innerHTML = '';
     
     if (data) {
-        updateDashboardStats(searchTerm, levelFilter);
+        // Update stats instantly alongside data rendering
+        if(statsData) {
+            const totalBal = statsData.reduce((sum, s) => sum + parseFloat(s.balance || 0), 0);
+            document.getElementById('stat-total-students').innerText = statsData.length;
+            document.getElementById('stat-total-balance').innerText = `₹${totalBal.toFixed(2)}`;
+        }
+
         const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_STUDENTS) || 1;
         document.getElementById('student-page-info').innerText = `Page ${studentPage} of ${totalPages}`;
         
@@ -369,19 +451,6 @@ async function loadStudents() {
                 </tr>
             `;
         });
-    }
-}
-
-async function updateDashboardStats(search, level) {
-    let statQuery = supabaseClient.from('students').select('balance');
-    if (search) statQuery = statQuery.ilike('name', `%${search}%`);
-    if (level) statQuery = statQuery.eq('level', level);
-    
-    const { data } = await statQuery;
-    if(data) {
-        const totalBal = data.reduce((sum, s) => sum + parseFloat(s.balance || 0), 0);
-        document.getElementById('stat-total-students').innerText = data.length;
-        document.getElementById('stat-total-balance').innerText = `₹${totalBal.toFixed(2)}`;
     }
 }
 
@@ -433,14 +502,6 @@ async function saveEditedStudent() {
     }
 }
 
-async function deleteStudent(id) {
-    if(!confirm("⚠️ WARNING: Deleting this student wipes all their transactions. Proceed?")) return;
-    showLoader(true);
-    await supabaseClient.from('students').delete().eq('id', id);
-    showLoader(false);
-    showToast("Profile deleted.");
-    loadStudents();
-}
 
 // --- STUDENT SPECIFIC REPORTS ---
 let currentReportStudent = null;
@@ -578,25 +639,65 @@ async function saveTransaction() {
         }
     }
 }
-
-async function deleteTransaction(txId) {
-    if(!confirm("Reverse this transaction?")) return;
-    showLoader(true);
-    await supabaseClient.from('transactions').delete().eq('id', txId);
-    showLoader(false);
-    showToast("Transaction reversed.");
-    loadTransactions();
+// In AUTHENTICATION section
+function logout() { 
+    showConfirm(
+        '<i class="fas fa-sign-out-alt text-danger"></i> Secure Logout', 
+        'Are you sure you want to securely log out of the LEDGER Portal?', 
+        async () => {
+            await supabaseClient.auth.signOut(); 
+            location.reload();
+        },
+        true
+    );
 }
 
+// In STUDENTS section
+function deleteStudent(id) {
+    showConfirm(
+        '<i class="fas fa-exclamation-triangle text-danger"></i> Delete Student',
+        'WARNING: Deleting this student wipes all their transactions. Proceed?',
+        async () => {
+            showLoader(true);
+            await supabaseClient.from('students').delete().eq('id', id);
+            showLoader(false);
+            showToast("Profile deleted.");
+            loadStudents();
+        },
+        true
+    );
+}
+
+// In TRANSACTIONS section
+function deleteTransaction(txId) {
+    showConfirm(
+        '<i class="fas fa-undo text-danger"></i> Reverse Transaction',
+        'Are you sure you want to reverse this transaction?',
+        async () => {
+            showLoader(true);
+            await supabaseClient.from('transactions').delete().eq('id', txId);
+            showLoader(false);
+            showToast("Transaction reversed.");
+            loadTransactions();
+        },
+        true
+    );
+}
 async function loadTransactions() {
     const startDate = document.getElementById('filter-start-date').value;
     const endDate = document.getElementById('filter-end-date').value;
     const payMode = document.getElementById('filter-pay-mode').value;
+    const txLevel = document.getElementById('filter-tx-level')?.value;
     
-    let query = supabaseClient.from('transactions').select('*, students(name)', { count: 'exact' }).order('transaction_date', { ascending: false });
+    // Add !inner to the relationship to enable filtering by student attributes
+    let query = supabaseClient.from('transactions')
+        .select('*, students!inner(name, level)', { count: 'exact' })
+        .order('transaction_date', { ascending: false });
+        
     if(startDate) query = query.gte('transaction_date', startDate);
     if(endDate) query = query.lte('transaction_date', endDate);
     if(payMode) query = query.eq('payment_mode', payMode);
+    if(txLevel) query = query.eq('students.level', txLevel);
     
     const from = (txPage - 1) * PAGE_LIMIT_TX;
     const to = from + PAGE_LIMIT_TX - 1;

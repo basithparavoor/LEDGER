@@ -62,11 +62,17 @@
 
         <main class="content bg-mesh">
             <header class="topbar">
-                <div class="topbar-left">
-                    <button id="mobile-menu-btn" onclick="toggleMobileMenu()"><i class="fas fa-bars"></i></button>
-                    <h1 id="section-title">Directory Overview</h1>
-                </div>
-            </header>
+    <div class="topbar-left">
+        <button id="mobile-menu-btn" onclick="toggleMobileMenu()"><i class="fas fa-bars"></i></button>
+        <h1 id="section-title">Directory Overview</h1>
+    </div>
+    <div class="topbar-right">
+        <!-- Desktop logout is in the sidebar, but we need this one specifically for mobile -->
+        <button class="btn-icon mobile-logout-btn" title="Secure Logout" onclick="logout()">
+            <i class="fas fa-sign-out-alt" style="color: var(--danger); font-size: 1.2rem;"></i>
+        </button>
+    </div>
+</header>
 
             <!-- Native App FAB (Visible only on mobile via CSS) -->
 <div id="mobile-fab" class="mobile-fab" style="display: none;">
@@ -145,15 +151,18 @@
             <section id="transactions-section" class="data-section">
                 <div class="toolbar flex-wrap">
                     <div class="toolbar-group">
-                        <input type="date" id="filter-start-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
-                        <input type="date" id="filter-end-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
-                        <select class="premium-select" id="filter-pay-mode" onchange="loadTransactions()" style="margin-bottom:0;">
-                            <option value="">All Modes</option>
-                            <option value="Cash">Cash</option>
-                            <option value="Bank Transfer">Bank Transfer</option>
-                            <option value="Card/UPI">Card / UPI</option>
-                        </select>
-                    </div>
+    <input type="date" id="filter-start-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
+    <input type="date" id="filter-end-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
+    <select class="premium-select dynamic-level-dropdown" id="filter-tx-level" onchange="loadTransactions()" style="margin-bottom:0;">
+        <option value="">All Levels</option>
+    </select>
+    <select class="premium-select" id="filter-pay-mode" onchange="loadTransactions()" style="margin-bottom:0;">
+        <option value="">All Modes</option>
+        <option value="Cash">Cash</option>
+        <option value="Bank Transfer">Bank Transfer</option>
+        <option value="Card/UPI">Card / UPI</option>
+    </select>
+</div>
                     <div class="toolbar-group">
                         <button class="btn-secondary" onclick="exportData('pdf', 'transactions')"><i class="fas fa-file-pdf"></i> PDF</button>
                         <button class="btn-secondary" onclick="exportData('csv', 'transactions')"><i class="fas fa-file-csv"></i> CSV</button>
@@ -391,7 +400,31 @@
             </div>
         </div>
     </div>
+<!-- Generic Confirmation Modal -->
+    <div id="modal-confirm" class="modal-overlay" style="z-index: 9999;">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <h3 id="confirm-title" style="margin-bottom: 1rem;">Confirm</h3>
+            <p id="confirm-message" style="color: var(--text-muted); margin-bottom: 2rem;">Are you sure?</p>
+            <div class="modal-actions" style="justify-content: center;">
+                <button class="btn-secondary" onclick="closeModal('modal-confirm')">Cancel</button>
+                <button id="confirm-action-btn" class="btn-primary">Confirm</button>
+            </div>
+        </div>
+    </div>
 
+    <!-- Edit Level Modal -->
+    <div id="modal-edit-level" class="modal-overlay" style="z-index: 1010;">
+        <div class="modal-content" style="max-width: 400px;">
+            <h3><i class="fas fa-edit text-blue"></i> Rename Level</h3>
+            <input type="hidden" id="edit-level-old-name">
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Note: Renaming this level will also automatically update all students currently assigned to it.</p>
+            <input type="text" id="edit-level-new-name" class="premium-input" placeholder="New Level Name">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-edit-level')">Cancel</button>
+                <button class="btn-primary" onclick="saveLevelEdit()">Save Changes</button>
+            </div>
+        </div>
+    </div>
     <script src="app.js"></script>
 </body>
 </html>
