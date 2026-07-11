@@ -13,6 +13,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -338,6 +339,18 @@
         <span style="font-size:0.9rem; color:var(--text-main); font-weight:600;">Cash sent to Administrator</span>
     </label>
 </div>
+
+<div id="global-tx-selectors" style="display: none; background: var(--surface-solid); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border);">
+    <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase;">Select Student</label>
+    <div class="input-grid-2">
+        <select id="global-tx-level" class="premium-select dynamic-level-dropdown" onchange="loadStudentsForDropdown(this.value)" style="margin-bottom: 0;">
+            <option value="">Select Level</option>
+        </select>
+        <select id="global-tx-student" class="premium-select" onchange="document.getElementById('tx-student-id').value = this.value" style="margin-bottom: 0;" disabled>
+            <option value="">Select Student...</option>
+        </select>
+    </div>
+</div>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="closeModal('modal-transaction')">Cancel</button>
                 <button class="btn-primary" onclick="saveTransaction()">Save Ledger</button>
@@ -404,6 +417,20 @@
                     </div>
                 </div>
             </div>
+
+            <div style="display: flex; gap: 1rem; background: var(--surface-solid); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid var(--border); flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 140px;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Start Date</label>
+        <input type="date" id="report-start-date" class="premium-input" style="margin-bottom: 0;">
+    </div>
+    <div style="flex: 1; min-width: 140px;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">End Date</label>
+        <input type="date" id="report-end-date" class="premium-input" style="margin-bottom: 0;">
+    </div>
+    <div style="display: flex; align-items: flex-end;">
+        <button class="btn-primary" onclick="generateStatement()"><i class="fas fa-filter"></i> Generate Statement</button>
+    </div>
+</div>
 
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
                 <h4 style="color: var(--text-muted); text-transform:uppercase; font-size: 0.8rem; letter-spacing:1px;">Transaction History</h4>

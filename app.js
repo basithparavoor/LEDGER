@@ -8,6 +8,9 @@ let userRole = null;
 let currentProfileName = '';
 let searchTimeout;
 
+// ADD IT RIGHT HERE:
+let currentReportStudent = null; 
+
 // DYNAMIC STATE
 let PAGE_LIMIT_STUDENTS = 8;
 let PAGE_LIMIT_TX = 8;
@@ -20,7 +23,6 @@ let hasMoreTx = true;
 
 // DYNAMIC STATE
 let systemLevels = [];
-
 // --- PWA & OFFLINE SYNC ---
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -30,15 +32,20 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// Listen for network changes
-window.addEventListener('online', syncOfflineTransactions);
-window.addEventListener('offline', () => showToast("You are offline. Transactions will be queued.", "warning"));
-
-// Call sync on load just in case they closed the app while offline
-window.addEventListener('DOMContentLoaded', () => {
-    if (navigator.onLine) syncOfflineTransactions();
+// Wrapped in arrow functions so it doesn't crash if the function hasn't loaded yet
+window.addEventListener('online', () => {
+    if (typeof syncOfflineTransactions === 'function') {
+        syncOfflineTransactions();
+    }
 });
 
+window.addEventListener('offline', () => showToast("You are offline. Transactions will be queued.", "warning"));
+
+window.addEventListener('DOMContentLoaded', () => {
+    if (navigator.onLine && typeof syncOfflineTransactions === 'function') {
+        syncOfflineTransactions();
+    }
+});
 // --- SESSION RESTORE ---
 window.addEventListener('DOMContentLoaded', async () => {
     showLoader(true);
@@ -388,23 +395,21 @@ function showSection(sectionId) {
     document.getElementById('section-title').innerText = titles[sectionId];
     document.getElementById('dashboard-stats').style.display = (sectionId === 'students') ? 'grid' : 'none';
 
-   // Handle Floating Action Button (FAB) Logic for Mobile App view
+   // Handle Floating Action Button (FAB) Logic
 const fab = document.getElementById('mobile-fab');
 if (fab) {
-    // Wrap everything in a strict Admin-only check
     if (userRole === 'admin') {
-        if (sectionId === 'students') {
-            fab.style.display = 'flex';
-            fab.onclick = () => openModal('modal-add-student');
-        } else if (sectionId === 'users') {
-            fab.style.display = 'flex';
-            fab.onclick = () => openModal('modal-add-staff');
-        } else {
-            fab.style.display = 'none'; 
-        }
+        if (sectionId === 'students') { fab.style.display = 'flex'; fab.onclick = () => openModal('modal-add-student'); } 
+        else if (sectionId === 'users') { fab.style.display = 'flex'; fab.onclick = () => openModal('modal-add-staff'); } 
+        else { fab.style.display = 'none'; }
     } else {
-        // STRICT ENFORCEMENT: Completely hide the FAB for all Staff members
-        fab.style.display = 'none';
+        // Staff Mobile Logic: Show on transactions page to add globally
+        if (sectionId === 'transactions') {
+            fab.style.display = 'flex';
+            fab.onclick = () => openGlobalAddTransaction();
+        } else {
+            fab.style.display = 'none';
+        }
     }
 }
 
@@ -597,46 +602,72 @@ async function saveEditedStudent() {
     }
 }
 
+// --- STUDENT SPECIFIC REPORTS & STATEMENTS ---
 
-// --- STUDENT SPECIFIC REPORTS ---
-let currentReportStudent = null;
-async function viewStudentReport(studentId, studentName, balance) {
-    currentReportStudent = { name: studentName, balance: balance };
+// 2. NOW the functions can safely use it
+async function generateStatement() {
+    if(!currentReportStudent) return;
+    const startDate = document.getElementById('report-start-date').value;
+    const endDate = document.getElementById('report-end-date').value;
+    await viewStudentReport(currentReportStudent.id, currentReportStudent.name, currentReportStudent.balance, startDate, endDate);
+}
+
+async function viewStudentReport(studentId, studentName, currentBalance, startDate = null, endDate = null) {
+    currentReportStudent = { id: studentId, name: studentName, balance: currentBalance };
     document.getElementById('report-student-name').innerText = studentName;
     
-    const balEl = document.getElementById('report-student-balance');
-    balEl.innerText = `₹${balance.toFixed(2)}`;
-    balEl.style.color = balance < 0 ? 'var(--danger)' : 'var(--text-main)';
-    
     showLoader(true);
-    const { data, error } = await supabaseClient
-        .from('transactions')
-        .select('*')
-        .eq('student_id', studentId)
-        .order('transaction_date', { ascending: false });
+    let query = supabaseClient.from('transactions').select('*').eq('student_id', studentId).order('transaction_date', { ascending: false });
     
+    if (endDate) query = query.lte('transaction_date', endDate);
+    
+    const { data, error } = await query;
     showLoader(false);
     if(error) return showToast("Error loading report.", "error");
 
     const timeline = document.getElementById('student-report-timeline');
     timeline.innerHTML = '';
     
-    let totalCredit = 0;
-    let totalDebit = 0;
+    let periodCredit = 0;
+    let periodDebit = 0;
+    let openingBalance = 0;
+    let filteredData = [];
 
-    if(data.length === 0) {
-        timeline.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">No transaction history found.</div>';
+    data.forEach(tx => {
+        const amt = parseFloat(tx.amount);
+        const isCredit = tx.transaction_type === 'credit';
+        const impact = isCredit ? amt : -amt;
+
+        if (startDate && new Date(tx.transaction_date) < new Date(startDate)) {
+            openingBalance += impact;
+        } else {
+            filteredData.push(tx);
+            if (isCredit) periodCredit += amt;
+            else periodDebit += amt;
+        }
+    });
+
+    const closingBalance = openingBalance + periodCredit - periodDebit;
+
+    document.getElementById('report-total-credit').innerText = `₹${periodCredit.toFixed(2)}`;
+    document.getElementById('report-total-debit').innerText = `₹${periodDebit.toFixed(2)}`;
+    
+    const balEl = document.getElementById('report-student-balance');
+    balEl.innerHTML = startDate ? `
+        <span style="font-size:0.7rem; color:var(--text-muted); display:block;">Opening: ₹${openingBalance.toFixed(2)}</span>
+        ₹${closingBalance.toFixed(2)}
+    ` : `₹${currentBalance.toFixed(2)}`;
+    balEl.style.color = closingBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
+
+    if(filteredData.length === 0) {
+        timeline.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">No transactions in this period.</div>';
     } else {
-        data.forEach(tx => {
+        filteredData.forEach(tx => {
             const amount = parseFloat(tx.amount);
-            if(tx.transaction_type === 'credit') totalCredit += amount;
-            else totalDebit += amount;
-
             const isCredit = tx.transaction_type === 'credit';
             const color = isCredit ? 'var(--success)' : 'var(--danger)';
             const icon = isCredit ? 'fa-arrow-down' : 'fa-arrow-up';
-            const sign = isCredit ? '+' : '-';
-
+            
             timeline.innerHTML += `
                 <div style="display:flex; align-items:center; justify-content:space-between; padding: 1rem; background: var(--surface-solid); border-radius: 12px; margin-bottom: 0.8rem; border-left: 4px solid ${color};">
                     <div style="display:flex; align-items:center; gap: 1rem;">
@@ -649,19 +680,14 @@ async function viewStudentReport(studentId, studentName, balance) {
                         </div>
                     </div>
                     <div style="text-align:right;">
-                        <p style="font-weight: 800; font-size: 1.1rem; color: ${color};">${sign}₹${amount.toFixed(2)}</p>
+                        <p style="font-weight: 800; font-size: 1.1rem; color: ${color};">${isCredit ? '+' : '-'}₹${amount.toFixed(2)}</p>
                     </div>
                 </div>
             `;
         });
     }
-
-    document.getElementById('report-total-credit').innerText = `₹${totalCredit.toFixed(2)}`;
-    document.getElementById('report-total-debit').innerText = `₹${totalDebit.toFixed(2)}`;
-    
     openModal('modal-student-report');
 }
-
 function downloadStudentReportPDF() {
     if(!currentReportStudent) return;
     const { jsPDF } = window.jspdf;
@@ -1237,11 +1263,19 @@ async function addStaff() {
     }
 }
 
-// --- GLOBAL EXPORTS ---
 function exportData(type, section) {
     const tableId = section === 'students' ? '#students-table' : '#transactions-table';
     const filename = `LEDGER_${section}_Export_${new Date().toISOString().split('T')[0]}`;
+    const table = document.querySelector(tableId);
     
+    if (type === 'excel') {
+        // Use SheetJS to parse the HTML table directly into a workbook
+        const wb = XLSX.utils.table_to_book(table, { sheet: "Data" });
+        // Export file
+        XLSX.writeFile(wb, `${filename}.xlsx`);
+        showToast("Excel Exported Successfully!");
+    } 
+    // ... keep your existing 'csv' and 'pdf' logic below here
     if (type === 'csv') {
         const table = document.querySelector(tableId);
         let data = [];
@@ -1283,5 +1317,43 @@ function exportData(type, section) {
 
         doc.save(`${filename}.pdf`);
         showToast("PDF Exported Successfully!");
+    }
+}
+
+function openGlobalAddTransaction() {
+    document.getElementById('tx-modal-title').innerText = "New Transaction";
+    document.getElementById('tx-id').value = ""; 
+    document.getElementById('tx-student-id').value = ""; // Reset
+    document.getElementById('tx-amount').value = "";
+    document.getElementById('tx-remarks').value = "";
+    document.getElementById('tx-pay-mode').value = "Cash";
+    document.getElementById('tx-sent-to-admin').checked = false;
+    
+    // Show the level/student selectors
+    document.getElementById('global-tx-selectors').style.display = 'block';
+    document.getElementById('global-tx-student').innerHTML = '<option value="">Select Level First</option>';
+    document.getElementById('global-tx-student').disabled = true;
+    
+    openModal('modal-transaction');
+}
+
+async function loadStudentsForDropdown(level) {
+    const studentSelect = document.getElementById('global-tx-student');
+    if (!level) {
+        studentSelect.innerHTML = '<option value="">Select Level First...</option>';
+        studentSelect.disabled = true;
+        return;
+    }
+    
+    studentSelect.disabled = false;
+    studentSelect.innerHTML = '<option value="">Loading...</option>';
+    
+    const { data, error } = await supabaseClient.from('students').select('id, name, roll_number').eq('level', level).order('name');
+    
+    if (data) {
+        studentSelect.innerHTML = '<option value="">-- Choose Student --</option>';
+        data.forEach(std => {
+            studentSelect.innerHTML += `<option value="${std.id}">${std.name} (${std.roll_number || 'No ID'})</option>`;
+        });
     }
 }

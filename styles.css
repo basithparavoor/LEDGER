@@ -203,8 +203,9 @@ input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-colo
 @media (max-width: 900px) {
    /* 1. App Body & Sticky Header (Scroll Fix) */
     html, body { height: auto; min-height: 100%; overflow-x: hidden; }
-    .layout { height: auto; min-height: 100vh; overflow: visible; display: block; }
-    .content { 
+.layout { height: auto; min-height: 100vh; overflow: visible; }
+.layout.active { display: block; }
+.layout:not(.active) { display: none !important; }    .content { 
         padding: 0; 
         height: auto; 
         overflow: visible; 
@@ -303,9 +304,19 @@ input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-colo
     .mobile-actions { display: none !important; } /* Rely entirely on tap to view details */
     .mobile-tile-row::after { display: none; }
     
-    /* Modals formatting */
-    .modal-content { padding: 1.5rem; width: 92%; max-height: 85vh; overflow-y: auto; margin: auto; }
-    
+/* Modals formatting - Fixed for Mobile Scrolling */
+.modal-overlay { 
+    align-items: flex-start; /* Stops flexbox from trapping content off-screen */
+    padding-top: 2rem; 
+}
+.modal-content { 
+    padding: 1.5rem; 
+    width: 92%; 
+    max-height: 85vh; 
+    overflow-y: auto !important; /* Force scrollability */
+    -webkit-overflow-scrolling: touch; /* Enables smooth momentum scrolling on iPhones */
+    margin: 0 auto; 
+}    
     /* 5. Floating Action Button (FAB) */
     .mobile-fab {
 display: flex; position: fixed; bottom: 95px; right: 20px;
