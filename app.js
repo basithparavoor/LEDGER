@@ -252,11 +252,27 @@ function showSection(sectionId) {
     document.getElementById('section-title').innerText = titles[sectionId];
     document.getElementById('dashboard-stats').style.display = (sectionId === 'students') ? 'grid' : 'none';
 
-    if(window.innerWidth <= 900) toggleMobileMenu();
+    // Handle Floating Action Button (FAB) Logic for Mobile App view
+    const fab = document.getElementById('mobile-fab');
+    if (fab) {
+        if (sectionId === 'students' && (userRole === 'admin' || userRole === 'staff')) {
+            fab.style.display = 'flex';
+            fab.onclick = () => openModal('modal-add-student');
+        } else if (sectionId === 'users' && userRole === 'admin') {
+            fab.style.display = 'flex';
+            fab.onclick = () => openModal('modal-add-staff');
+        } else {
+            // Hide FAB on the ledger section to force users to tap a specific student card to transact
+            fab.style.display = 'none'; 
+        }
+    }
 
     if(sectionId === 'students') { studentPage = 1; loadStudents(); }
     if(sectionId === 'transactions') { txPage = 1; loadTransactions(); }
     if(sectionId === 'users' && userRole === 'admin') loadUsers();
+    
+    // Scroll to top smoothly when changing tabs (App behavior)
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function updatePageLimit(type, limit) {
