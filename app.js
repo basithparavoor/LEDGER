@@ -314,6 +314,7 @@ async function checkUserRole(userId) {
     }
 }
 // --- NAVIGATION & PAGINATION LOGIC ---
+// --- NAVIGATION & PAGINATION LOGIC ---
 function showSection(sectionId) {
     document.querySelectorAll('.data-section').forEach(sec => sec.classList.remove('active'));
     document.querySelectorAll('.nav-links li').forEach(li => li.classList.remove('active-nav'));
@@ -328,14 +329,14 @@ function showSection(sectionId) {
     // Handle Floating Action Button (FAB) Logic for Mobile App view
     const fab = document.getElementById('mobile-fab');
     if (fab) {
-        if (sectionId === 'students' && (userRole === 'admin' || userRole === 'staff')) {
+        // STRICT PERMISSION: Only Admins can add students or staff. Staff can only add transactions (which has no FAB).
+        if (sectionId === 'students' && userRole === 'admin') {
             fab.style.display = 'flex';
             fab.onclick = () => openModal('modal-add-student');
         } else if (sectionId === 'users' && userRole === 'admin') {
             fab.style.display = 'flex';
             fab.onclick = () => openModal('modal-add-staff');
         } else {
-            // Hide FAB on the ledger section to force users to tap a specific student card to transact
             fab.style.display = 'none'; 
         }
     }
@@ -344,7 +345,6 @@ function showSection(sectionId) {
     if(sectionId === 'transactions') { txPage = 1; loadTransactions(); }
     if(sectionId === 'users' && userRole === 'admin') loadUsers();
     
-    // Scroll to top smoothly when changing tabs (App behavior)
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 

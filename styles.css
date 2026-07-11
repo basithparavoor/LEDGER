@@ -144,8 +144,9 @@ button { font-family: inherit; }
 /* Toolbars */
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; gap: 1rem; }
 .toolbar.flex-wrap { flex-wrap: wrap; }
-.toolbar-group { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
-
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap; }
+.toolbar.flex-wrap { flex-wrap: wrap; }
+.toolbar-group { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; flex-direction: row; }
 /* Tables */
 .table-card { border-radius: var(--radius-lg); overflow: hidden; padding: 1px; background: white; border: 1px solid var(--border); box-shadow: var(--shadow-soft); }
 .responsive-table { width: 100%; border-collapse: collapse; text-align: left; }
@@ -200,10 +201,15 @@ input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-colo
 
 /* Mobile Native App Layout */
 @media (max-width: 900px) {
-    /* 1. App Body & Sticky Header */
-    body { padding-bottom: 80px; /* Space for bottom nav */ }
-    .content { padding: 0; height: auto; overflow: visible; }
-    
+   /* 1. App Body & Sticky Header (Scroll Fix) */
+    html, body { height: auto; min-height: 100%; overflow-x: hidden; }
+    .layout { height: auto; min-height: 100vh; overflow: visible; display: block; }
+    .content { 
+        padding: 0; 
+        height: auto; 
+        overflow: visible; 
+        padding-bottom: 120px !important; /* Forces enough space at bottom to scroll past pagination */
+    }
     /* Updated Sticky Header for Mobile */
     .topbar {
         position: sticky; top: 0; background: rgba(255, 255, 255, 0.9);
@@ -327,24 +333,29 @@ input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-colo
 /* =========================================
        MOBILE SEARCH & TOOLBAR OPTIMIZATION
        ========================================= */
+    .toolbar { flex-direction: column; align-items: stretch; }
     .toolbar-group {
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         width: 100%;
         gap: 0.75rem;
     }
     
     .toolbar-group .search-box {
-        width: 100%;
-        min-width: 100%;
-        padding: 0.75rem 1rem; /* Taller for mobile tapping */
+        grid-column: 1 / -1; /* Forces search to take the full top row */
+        padding: 0.75rem 1rem;
     }
     
     .toolbar-group .search-box input {
         width: 100%;
-        font-size: 1rem; /* Prevent iOS auto-zoom */
+        font-size: 1rem;
     }
-
+    
+    .toolbar-group button, .toolbar-group select, .toolbar-group input[type="date"] {
+        width: 100%;
+        justify-content: center;
+        margin: 0;
+    }
     /* =========================================
        MOBILE PAGINATION CONTROLS
        ========================================= */
