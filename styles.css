@@ -409,3 +409,17 @@ display: flex; position: fixed; bottom: 95px; right: 20px;
 @media (min-width: 901px) {
     .mobile-logout-btn { display: none !important; }
 }
+
+/* =========================================
+   BULLETPROOF SCREEN ISOLATION 
+   ========================================= */
+#dashboard-screen:not(.active) { 
+    display: none !important; 
+}
+#login-screen:not(.active) {
+    display: none !important;
+}
+#login-screen.active {
+    overflow: hidden !important; 
+    touch-action: none; /* Disables drag-to-scroll on the login background */
+}

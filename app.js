@@ -46,6 +46,7 @@ window.addEventListener('DOMContentLoaded', () => {
         syncOfflineTransactions();
     }
 });
+
 // --- SESSION RESTORE ---
 window.addEventListener('DOMContentLoaded', async () => {
     showLoader(true);
@@ -55,15 +56,20 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (session) {
         currentUser = session.user;
         await checkUserRole(currentUser.id);
+        
+        // Ensure inline styles are cleared so CSS can take over
+        document.getElementById('dashboard-screen').style.display = ''; 
+        
         document.getElementById('login-screen').classList.remove('active');
         document.getElementById('dashboard-screen').classList.add('active');
         document.getElementById('tx-date').valueAsDate = new Date();
         await loadStudents();
+    } else {
+        // THE NUKE: If not logged in, violently force the dashboard into hiding
+        document.getElementById('dashboard-screen').style.display = 'none';
     }
     showLoader(false);
 });
-
-
 // --- UTILITIES ---
 function showToast(message, type = 'success') {
     const container = document.getElementById('toast-container');
