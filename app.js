@@ -21,6 +21,24 @@ let hasMoreTx = true;
 // DYNAMIC STATE
 let systemLevels = [];
 
+// --- PWA & OFFLINE SYNC ---
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('Service Worker Registered'))
+            .catch(err => console.error('Service Worker Registration Failed:', err));
+    });
+}
+
+// Listen for network changes
+window.addEventListener('online', syncOfflineTransactions);
+window.addEventListener('offline', () => showToast("You are offline. Transactions will be queued.", "warning"));
+
+// Call sync on load just in case they closed the app while offline
+window.addEventListener('DOMContentLoaded', () => {
+    if (navigator.onLine) syncOfflineTransactions();
+});
+
 // --- SESSION RESTORE ---
 window.addEventListener('DOMContentLoaded', async () => {
     showLoader(true);
@@ -357,7 +375,7 @@ async function checkUserRole(userId) {
         document.getElementById('display-user-name').innerText = currentUser.email.split('@')[0];
     }
 }
-// --- NAVIGATION & PAGINATION LOGIC ---
+
 // --- NAVIGATION & PAGINATION LOGIC ---
 function showSection(sectionId) {
     document.querySelectorAll('.data-section').forEach(sec => sec.classList.remove('active'));
@@ -370,20 +388,25 @@ function showSection(sectionId) {
     document.getElementById('section-title').innerText = titles[sectionId];
     document.getElementById('dashboard-stats').style.display = (sectionId === 'students') ? 'grid' : 'none';
 
-    // Handle Floating Action Button (FAB) Logic for Mobile App view
-    const fab = document.getElementById('mobile-fab');
-    if (fab) {
-        // STRICT PERMISSION: Only Admins can add students or staff. Staff can only add transactions (which has no FAB).
-        if (sectionId === 'students' && userRole === 'admin') {
+   // Handle Floating Action Button (FAB) Logic for Mobile App view
+const fab = document.getElementById('mobile-fab');
+if (fab) {
+    // Wrap everything in a strict Admin-only check
+    if (userRole === 'admin') {
+        if (sectionId === 'students') {
             fab.style.display = 'flex';
             fab.onclick = () => openModal('modal-add-student');
-        } else if (sectionId === 'users' && userRole === 'admin') {
+        } else if (sectionId === 'users') {
             fab.style.display = 'flex';
             fab.onclick = () => openModal('modal-add-staff');
         } else {
             fab.style.display = 'none'; 
         }
+    } else {
+        // STRICT ENFORCEMENT: Completely hide the FAB for all Staff members
+        fab.style.display = 'none';
     }
+}
 
     if(sectionId === 'students') { studentPage = 1; loadStudents(); }
     if(sectionId === 'transactions') { txPage = 1; loadTransactions(); }
@@ -736,7 +759,6 @@ function openAddTransaction(studentId) {
     
     openModal('modal-transaction');
 }
-
 async function saveTransaction() {
     const txId = document.getElementById('tx-id').value;
     const studentId = document.getElementById('tx-student-id').value;
@@ -749,23 +771,36 @@ async function saveTransaction() {
     
     if(!amount || amount <= 0) return showToast("Enter a valid amount!", "error");
     
-    // Logic: Only requires verification if staff ticks "Cash sent to Admin"
     let txStatus = 'verified';
     if (userRole === 'staff' && type === 'credit' && sentToAdmin) {
         txStatus = 'pending';
+    }
+
+    const transactionData = {
+        student_id: studentId, transaction_type: type, payment_mode: mode, 
+        amount, remarks, transaction_date: txDate, created_by: currentUser?.id, 
+        status: txStatus, sent_to_admin: sentToAdmin 
+    };
+
+    // OFFLINE HANDLING
+    if (!navigator.onLine) {
+        if (txId) return showToast("Cannot edit transactions while offline.", "error"); // Editing offline is too complex for basic queues
+        
+        const offlineQueue = JSON.parse(localStorage.getItem('ledger_offline_tx') || '[]');
+        offlineQueue.push(transactionData);
+        localStorage.setItem('ledger_offline_tx', JSON.stringify(offlineQueue));
+        
+        closeModal('modal-transaction');
+        return showToast("Offline: Transaction queued securely.", "warning");
     }
     
     showLoader(true);
     let error;
     if (txId) {
-        const res = await supabaseClient.from('transactions').update({ 
-            transaction_type: type, payment_mode: mode, amount, remarks, transaction_date: txDate, status: txStatus, sent_to_admin: sentToAdmin 
-        }).eq('id', txId);
+        const res = await supabaseClient.from('transactions').update(transactionData).eq('id', txId);
         error = res.error;
     } else {
-        const res = await supabaseClient.from('transactions').insert([{ 
-            student_id: studentId, transaction_type: type, payment_mode: mode, amount, remarks, transaction_date: txDate, created_by: currentUser.id, status: txStatus, sent_to_admin: sentToAdmin 
-        }]);
+        const res = await supabaseClient.from('transactions').insert([transactionData]);
         error = res.error;
     }
     showLoader(false);
@@ -775,6 +810,29 @@ async function saveTransaction() {
         closeModal('modal-transaction');
         showToast(txStatus === 'pending' ? "Sent to Admin for verification!" : "Transaction recorded locally!");
         loadTransactions();
+    }
+}
+
+// Function to process queued transactions when back online
+async function syncOfflineTransactions() {
+    const offlineQueue = JSON.parse(localStorage.getItem('ledger_offline_tx') || '[]');
+    if (offlineQueue.length === 0) return;
+
+    showToast(`Syncing ${offlineQueue.length} offline transactions...`);
+    showLoader(true);
+    
+    const { error } = await supabaseClient.from('transactions').insert(offlineQueue);
+    
+    showLoader(false);
+    
+    if (error) {
+        showToast("Failed to sync offline transactions. Will retry later.", "error");
+    } else {
+        localStorage.removeItem('ledger_offline_tx');
+        showToast("Offline transactions synced successfully!");
+        if (document.getElementById('transactions-section').classList.contains('active')) {
+            loadTransactions();
+        }
     }
 }
 
