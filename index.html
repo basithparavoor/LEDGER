@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium Cash Manager Pro</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+
+    <div id="toast-container"></div>
+    <div id="global-loader" class="loader-overlay"><div class="spinner"></div></div>
+    <div id="mobile-overlay" class="mobile-overlay" onclick="toggleMobileMenu()"></div>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="screen active">
+        <div class="login-card premium-glass">
+            <div class="logo-icon-large"><i class="fas fa-layer-group"></i></div>
+            <h2>LEDGER Portal</h2>
+            <p>Secure Institutional Finance</p>
+            <div class="input-group">
+                <i class="fas fa-envelope"></i>
+                <input type="email" id="email" placeholder="Email Address">
+            </div>
+            <div class="input-group">
+                <i class="fas fa-lock"></i>
+                <input type="password" id="password" placeholder="Password">
+            </div>
+            <button onclick="login()" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 1rem;">Authenticate</button>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div id="dashboard-screen" class="screen layout">
+        
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-text"><i class="fas fa-layer-group"></i> LEDGER</div>
+                <button class="mobile-close-btn" onclick="toggleMobileMenu()"><i class="fas fa-times"></i></button>
+            </div>
+            <ul class="nav-links">
+                <li onclick="showSection('students')" class="active-nav"><i class="fas fa-user-graduate"></i> Directory</li>
+                <li onclick="showSection('transactions')"><i class="fas fa-file-invoice-dollar"></i> Ledger</li>
+                <li id="admin-users-tab" onclick="showSection('users')" style="display:none;"><i class="fas fa-shield-alt"></i> Access Control</li>
+            </ul>
+            <div class="sidebar-footer">
+                <div class="user-profile-mini">
+                    <div class="avatar"><i class="fas fa-user"></i></div>
+                    <div class="user-info">
+                        <span class="user-name-display" id="display-user-name">Loading...</span>
+                        <span class="user-role-badge" id="user-role-badge">STAFF</span>
+                    </div>
+                </div>
+                <button class="btn-logout" title="Secure Logout" onclick="logout()"><i class="fas fa-sign-out-alt"></i></button>
+            </div>
+        </nav>
+
+        <main class="content bg-mesh">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <button id="mobile-menu-btn" onclick="toggleMobileMenu()"><i class="fas fa-bars"></i></button>
+                    <h1 id="section-title">Directory Overview</h1>
+                </div>
+            </header>
+
+            <div class="stats-grid" id="dashboard-stats" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-icon bg-blue-light"><i class="fas fa-users text-blue"></i></div>
+                    <div class="stat-details">
+                        <p>Total Directory</p>
+                        <h3 id="stat-total-students">0</h3>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon bg-emerald-light"><i class="fas fa-wallet text-emerald"></i></div>
+                    <div class="stat-details">
+                        <p>Institution Balance</p>
+                        <h3 id="stat-total-balance">₹0.00</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STUDENTS SECTION -->
+            <section id="students-section" class="data-section active">
+                <div class="toolbar flex-wrap">
+                    <div class="toolbar-group">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search by name..." id="search-student" oninput="debouncedSearch('student')">
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <select class="premium-select dynamic-level-dropdown" id="filter-level" onchange="loadStudents()" style="margin-bottom:0; min-width: 150px;">
+                                <option value="">All Levels</option>
+                            </select>
+                            <button class="btn-icon" title="Manage Levels" onclick="openLevelManager()"><i class="fas fa-cog"></i></button>
+                        </div>
+                    </div>
+                    <div class="toolbar-group">
+                        <button class="btn-secondary" onclick="exportData('pdf', 'students')"><i class="fas fa-file-pdf"></i> PDF</button>
+                        <button class="btn-secondary" onclick="exportData('csv', 'students')"><i class="fas fa-file-csv"></i> CSV</button>
+                        <button id="add-student-btn" class="btn-primary" style="display:none;" onclick="openModal('modal-add-student')">
+                            <i class="fas fa-plus"></i> Add Profile
+                        </button>
+                    </div>
+                </div>
+                <div class="table-card premium-glass">
+                    <table class="responsive-table" id="students-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;"><input type="checkbox" onclick="toggleAllCheckboxes('students-body', this)"></th>
+                                <th>Name & ID</th>
+                                <th class="mobile-hide">Level</th>
+                                <th class="mobile-hide">Contact</th>
+                                <th>Balance</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="students-body"></tbody>
+                    </table>
+                    <div class="pagination-controls">
+                        <div style="display:flex; align-items:center; gap: 0.5rem;">
+                            <span class="page-info">Rows:</span>
+                            <input type="number" id="page-limit-student" class="premium-input" style="width: 70px; margin:0; padding:0.4rem;" value="8" min="1" max="100" onchange="updatePageLimit('student', this.value)">
+                        </div>
+                        <div style="display:flex; align-items:center; gap: 1rem;">
+                            <button class="btn-icon" onclick="changePage('student', -1)"><i class="fas fa-chevron-left"></i></button>
+                            <span id="student-page-info" class="page-info">Page 1</span>
+                            <button class="btn-icon" onclick="changePage('student', 1)"><i class="fas fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TRANSACTIONS SECTION -->
+            <section id="transactions-section" class="data-section">
+                <div class="toolbar flex-wrap">
+                    <div class="toolbar-group">
+                        <input type="date" id="filter-start-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
+                        <input type="date" id="filter-end-date" class="premium-input" style="margin-bottom:0;" onchange="loadTransactions()">
+                        <select class="premium-select" id="filter-pay-mode" onchange="loadTransactions()" style="margin-bottom:0;">
+                            <option value="">All Modes</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                            <option value="Card/UPI">Card / UPI</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-group">
+                        <button class="btn-secondary" onclick="exportData('pdf', 'transactions')"><i class="fas fa-file-pdf"></i> PDF</button>
+                        <button class="btn-secondary" onclick="exportData('csv', 'transactions')"><i class="fas fa-file-csv"></i> CSV</button>
+                    </div>
+                </div>
+                <div class="table-card premium-glass">
+                    <table class="responsive-table" id="transactions-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;"><input type="checkbox" onclick="toggleAllCheckboxes('ledger-body', this)"></th>
+                                <th>Date</th>
+                                <th>Student</th>
+                                <th>Type & Mode</th>
+                                <th>Amount</th>
+                                <th class="mobile-hide">Remarks</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ledger-body"></tbody>
+                    </table>
+                    <div class="pagination-controls">
+                        <div style="display:flex; align-items:center; gap: 0.5rem;">
+                            <span class="page-info">Rows:</span>
+                            <input type="number" id="page-limit-tx" class="premium-input" style="width: 70px; margin:0; padding:0.4rem;" value="8" min="1" max="100" onchange="updatePageLimit('tx', this.value)">
+                        </div>
+                        <div style="display:flex; align-items:center; gap: 1rem;">
+                            <button class="btn-icon" onclick="changePage('tx', -1)"><i class="fas fa-chevron-left"></i></button>
+                            <span id="tx-page-info" class="page-info">Page 1</span>
+                            <button class="btn-icon" onclick="changePage('tx', 1)"><i class="fas fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- USERS / STAFF SECTION -->
+            <section id="users-section" class="data-section">
+                <div class="toolbar">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" placeholder="Search accounts..." id="search-staff" oninput="loadUsers()">
+                    </div>
+                    <button class="btn-primary" onclick="openModal('modal-add-staff')">
+                        <i class="fas fa-user-plus"></i> Add Account
+                    </button>
+                </div>
+                <div class="table-card premium-glass">
+                    <table class="responsive-table">
+                        <thead>
+                            <tr>
+                                <th>Staff Name</th>
+                                <th>Identifier (Email)</th>
+                                <th>Access Level</th>
+                                <th>Onboarded</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-body"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODALS -->
+    
+    <!-- Mobile Details Modal -->
+    <div id="modal-mobile-detail" class="modal-overlay">
+        <div class="modal-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
+                <h3><i class="fas fa-info-circle text-blue"></i> Record Details</h3>
+                <button class="btn-icon" onclick="closeModal('modal-mobile-detail')"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="mobile-detail-content" style="display:flex; flex-direction:column; gap:1rem;">
+                <!-- Populated via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Level Manager Modal -->
+    <div id="modal-manage-levels" class="modal-overlay">
+        <div class="modal-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
+                <h3><i class="fas fa-tags text-blue"></i> Manage Levels</h3>
+                <button class="btn-icon" onclick="closeModal('modal-manage-levels')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="input-group" style="margin-bottom: 1rem;">
+                <input type="text" id="new-level-input" placeholder="Enter new level name..." style="padding-left: 1rem;">
+                <button class="btn-primary" style="position: absolute; right: 0.2rem; top: 0.2rem; bottom: 0.2rem; border-radius: 8px;" onclick="addLevel()">Add</button>
+            </div>
+            <ul id="level-list" style="list-style: none; max-height: 250px; overflow-y: auto; padding-right: 0.5rem; display:flex; flex-direction:column; gap:0.5rem;">
+                <!-- Populated via JS -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- Add Student Modal -->
+    <div id="modal-add-student" class="modal-overlay">
+        <div class="modal-content">
+            <h3>New Directory Entry</h3>
+            <div class="input-grid">
+                <input type="text" id="new-std-name" class="premium-input" placeholder="Full Legal Name">
+                <input type="text" id="new-std-roll" class="premium-input" placeholder="ID / Roll Number">
+                <select id="new-std-level" class="premium-select dynamic-level-dropdown">
+                    <!-- Populated via JS -->
+                </select>
+                <input type="text" id="new-std-contact" class="premium-input" placeholder="Contact Information">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-add-student')">Cancel</button>
+                <button class="btn-primary" onclick="addStudent()">Save Record</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Student Modal -->
+    <div id="modal-edit-student" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Modify Record</h3>
+            <input type="hidden" id="edit-std-id">
+            <div class="input-grid">
+                <input type="text" id="edit-std-name" class="premium-input" placeholder="Full Name">
+                <input type="text" id="edit-std-roll" class="premium-input" placeholder="ID / Roll Number">
+                <select id="edit-std-level" class="premium-select dynamic-level-dropdown">
+                     <!-- Populated via JS -->
+                </select>
+                <input type="text" id="edit-std-contact" class="premium-input" placeholder="Contact Information">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-edit-student')">Cancel</button>
+                <button class="btn-primary" onclick="saveEditedStudent()">Update Record</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transaction Modal -->
+    <div id="modal-transaction" class="modal-overlay">
+        <div class="modal-content">
+            <h3 id="tx-modal-title">Process Transaction</h3>
+            <input type="hidden" id="tx-id">
+            <input type="hidden" id="tx-student-id">
+            
+            <div class="premium-form-group">
+                <label>Transaction Details</label>
+                <div class="input-grid-2">
+                    <select id="tx-type" class="premium-select">
+                        <option value="credit">Credit (+ Add Funds)</option>
+                        <option value="debit">Debit (- Deduct Funds)</option>
+                    </select>
+                    <select id="tx-pay-mode" class="premium-select">
+                        <option value="Cash">Cash</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="Card/UPI">Card / UPI</option>
+                    </select>
+                </div>
+            </div>
+            
+            <input type="number" id="tx-amount" class="premium-input" style="font-size: 1.25rem; font-weight: 700; color: var(--primary);" placeholder="Amount (₹)">
+            <input type="date" id="tx-date" class="premium-input">
+            <textarea id="tx-remarks" class="premium-input" placeholder="Remarks (Optional)" rows="2"></textarea>
+            
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-transaction')">Cancel</button>
+                <button class="btn-primary" onclick="saveTransaction()">Save Ledger</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Staff Modal -->
+    <div id="modal-add-staff" class="modal-overlay">
+        <div class="modal-content">
+            <h3><i class="fas fa-shield-alt text-blue"></i> Provision Access</h3>
+            
+            <input type="text" id="new-staff-name" class="premium-input" placeholder="Staff Full Name">
+            <input type="email" id="new-staff-email" class="premium-input" placeholder="Staff Email Address">
+            
+            <div class="input-group" style="margin-bottom: 0;">
+                <input type="password" id="new-staff-pass" placeholder="Set Initial Password">
+                <i class="fas fa-eye toggle-pass" onclick="togglePasswordVisibility('new-staff-pass', this)"></i>
+            </div>
+            
+            <select id="new-staff-role" class="premium-select" style="margin-top:1rem;">
+                <option value="staff">Standard Operations (Staff)</option>
+                <option value="admin">Administrator (Full Access)</option>
+            </select>
+            
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('modal-add-staff')">Cancel</button>
+                <button class="btn-primary" onclick="addStaff()">Provision User</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Student Report Modal -->
+    <div id="modal-student-report" class="modal-overlay">
+        <div class="modal-content large">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
+                <h3><i class="fas fa-chart-line text-blue"></i> Student Financial Report</h3>
+                <button class="btn-icon" onclick="closeModal('modal-student-report')"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <div class="stats-grid" style="margin-bottom: 1.5rem; gap: 1rem;">
+                <div class="stat-card" style="padding: 1rem; border-left: 4px solid var(--primary);">
+                    <div class="stat-details">
+                        <p>Student Name</p>
+                        <h3 id="report-student-name" style="font-size: 1.1rem; color: var(--primary);">Loading...</h3>
+                    </div>
+                </div>
+                <div class="stat-card" style="padding: 1rem; border-left: 4px solid var(--success);">
+                    <div class="stat-details">
+                        <p>Total Deposits</p>
+                        <h3 id="report-total-credit" style="font-size: 1.1rem;">₹0.00</h3>
+                    </div>
+                </div>
+                <div class="stat-card" style="padding: 1rem; border-left: 4px solid var(--danger);">
+                    <div class="stat-details">
+                        <p>Total Deductions</p>
+                        <h3 id="report-total-debit" style="font-size: 1.1rem;">₹0.00</h3>
+                    </div>
+                </div>
+                <div class="stat-card" style="padding: 1rem; background: var(--surface-solid);">
+                    <div class="stat-details">
+                        <p>Current Balance</p>
+                        <h3 id="report-student-balance" style="font-size: 1.3rem; font-weight: 800;">₹0.00</h3>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+                <h4 style="color: var(--text-muted); text-transform:uppercase; font-size: 0.8rem; letter-spacing:1px;">Transaction History</h4>
+                <button class="btn-primary" style="padding: 0.5rem 1rem; font-size:0.8rem;" onclick="downloadStudentReportPDF()"><i class="fas fa-download"></i> Export PDF</button>
+            </div>
+
+            <div style="max-height: 350px; overflow-y: auto; padding-right: 0.5rem;" id="student-report-timeline">
+                <!-- Populated via JS -->
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
