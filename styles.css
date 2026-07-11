@@ -257,8 +257,11 @@ input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-colo
     .toolbar-group .search-box { grid-column: span 2; min-width: 100%; margin-bottom: 0.5rem; }
     .toolbar-group > button.btn-secondary { font-size: 0.8rem; padding: 0.6rem; }
     
-    /* Hide traditional add buttons, we will use a FAB */
-    #add-student-btn, .btn-primary { display: none !important; }
+/* Hide traditional add buttons in the toolbar, we will use a FAB */
+    #add-student-btn, .toolbar .btn-primary { display: none !important; }
+    
+    /* Ensure primary buttons inside modals always remain visible */
+    .modal-content .btn-primary { display: inline-flex !important; }
 
     /* 4. Native App Cards (Replacing Tables) */
     .table-card { border: none; box-shadow: none; background: transparent; padding: 0 1rem; }
