@@ -23,29 +23,6 @@ let hasMoreTx = true;
 
 // DYNAMIC STATE
 let systemLevels = [];
-// --- PWA & OFFLINE SYNC ---
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-            .then(reg => console.log('Service Worker Registered'))
-            .catch(err => console.error('Service Worker Registration Failed:', err));
-    });
-}
-
-// Wrapped in arrow functions so it doesn't crash if the function hasn't loaded yet
-window.addEventListener('online', () => {
-    if (typeof syncOfflineTransactions === 'function') {
-        syncOfflineTransactions();
-    }
-});
-
-window.addEventListener('offline', () => showToast("You are offline. Transactions will be queued.", "warning"));
-
-window.addEventListener('DOMContentLoaded', () => {
-    if (navigator.onLine && typeof syncOfflineTransactions === 'function') {
-        syncOfflineTransactions();
-    }
-});
 
 // --- SESSION RESTORE ---
 window.addEventListener('DOMContentLoaded', async () => {
@@ -380,6 +357,8 @@ async function checkUserRole(userId) {
         if (userRole === 'admin') {
             document.getElementById('add-student-btn').style.display = 'inline-flex';
             document.getElementById('admin-users-tab').style.display = 'flex';
+            // Add inside checkUserRole under if (userRole === 'admin') {
+document.querySelectorAll('.admin-only-element').forEach(el => el.style.display = 'inline-flex');
         } else if (userRole === 'staff') {
             document.getElementById('staff-wallet-tab').style.display = 'flex';
         }
@@ -665,6 +644,8 @@ async function viewStudentReport(studentId, studentName, currentBalance, startDa
     ` : `₹${currentBalance.toFixed(2)}`;
     balEl.style.color = closingBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
 
+   // ... (Keep the top half of viewStudentReport exactly the same) ...
+
     if(filteredData.length === 0) {
         timeline.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">No transactions in this period.</div>';
     } else {
@@ -674,6 +655,17 @@ async function viewStudentReport(studentId, studentName, currentBalance, startDa
             const color = isCredit ? 'var(--success)' : 'var(--danger)';
             const icon = isCredit ? 'fa-arrow-down' : 'fa-arrow-up';
             
+            // Inject Admin Actions
+            let adminActions = '';
+            if (userRole === 'admin') {
+                adminActions = `
+                    <div style="display: flex; gap: 5px; justify-content: flex-end; margin-top: 8px;">
+                        <button class="btn-icon" style="width:28px; height:28px; border: 1px solid var(--border);" title="Edit" onclick="closeModal('modal-student-report'); openEditTransaction('${tx.id}', '${tx.transaction_type}', '${tx.payment_mode || 'Cash'}', '${tx.amount}', '${tx.remarks || ''}', '${tx.transaction_date}')"><i class="fas fa-edit" style="font-size:0.75rem;"></i></button>
+                        <button class="btn-icon delete" style="width:28px; height:28px; border: 1px solid var(--border);" title="Delete" onclick="closeModal('modal-student-report'); deleteTransaction('${tx.id}')"><i class="fas fa-trash" style="font-size:0.75rem;"></i></button>
+                    </div>
+                `;
+            }
+
             timeline.innerHTML += `
                 <div style="display:flex; align-items:center; justify-content:space-between; padding: 1rem; background: var(--surface-solid); border-radius: 12px; margin-bottom: 0.8rem; border-left: 4px solid ${color};">
                     <div style="display:flex; align-items:center; gap: 1rem;">
@@ -687,6 +679,7 @@ async function viewStudentReport(studentId, studentName, currentBalance, startDa
                     </div>
                     <div style="text-align:right;">
                         <p style="font-weight: 800; font-size: 1.1rem; color: ${color};">${isCredit ? '+' : '-'}₹${amount.toFixed(2)}</p>
+                        ${adminActions}
                     </div>
                 </div>
             `;
@@ -694,6 +687,7 @@ async function viewStudentReport(studentId, studentName, currentBalance, startDa
     }
     openModal('modal-student-report');
 }
+
 function downloadStudentReportPDF() {
     if(!currentReportStudent) return;
     const { jsPDF } = window.jspdf;
@@ -766,7 +760,13 @@ function deleteTransaction(txId) {
             await supabaseClient.from('transactions').delete().eq('id', txId);
             showLoader(false);
             showToast("Transaction reversed.");
-            loadTransactions();
+            
+            // Reload whatever screen is currently active
+            if (document.getElementById('transactions-section').classList.contains('active')) {
+                loadTransactions();
+            } else {
+                loadStudents();
+            }
         },
         true
     );
@@ -872,64 +872,63 @@ async function loadTransactions(isAppend = false) {
     if (isFetchingTx) return;
     isFetchingTx = true;
 
-    const startDate = document.getElementById('filter-start-date').value;
-    const endDate = document.getElementById('filter-end-date').value;
-    const payMode = document.getElementById('filter-pay-mode').value;
-    const txLevel = document.getElementById('filter-tx-level')?.value;
-    const txStatus = document.getElementById('filter-tx-status')?.value;
-    
-    // Reset to page 1 if this is a fresh search or filter
-    if (!isAppend) {
-        txPage = 1;
-        hasMoreTx = true;
-    }
-    
-   let query = supabaseClient.from('transactions').select('*, students!inner(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });
+    try {
+        const startDate = document.getElementById('filter-start-date').value;
+        const endDate = document.getElementById('filter-end-date').value;
+        const payMode = document.getElementById('filter-pay-mode').value;
+        const txLevel = document.getElementById('filter-tx-level')?.value;
+        const txStatus = document.getElementById('filter-tx-status')?.value;
         
-    if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
-    if(startDate) query = query.gte('transaction_date', startDate);
-    if(endDate) query = query.lte('transaction_date', endDate);
-    if(payMode) query = query.eq('payment_mode', payMode);
-    if(txLevel) query = query.eq('students.level', txLevel);
-    if(txStatus) query = query.eq('status', txStatus); 
-    
-    const from = (txPage - 1) * PAGE_LIMIT_TX;
-    const to = from + PAGE_LIMIT_TX - 1;
-    query = query.range(from, to);
-    
-    if (!isAppend) showLoader(true);
-    // Added 'error' to the destructuring
-    const { data, count, error } = await query;
-    if (!isAppend) showLoader(false);
-
-    // Added safety net for 416 Out of Bounds error
-    if (error) {
-        if (error.code === 'PGRST103') {
+        if (!isAppend) {
             txPage = 1;
-            return loadTransactions(isAppend);
+            hasMoreTx = true;
         }
-        return showToast("Error loading transactions: " + error.message, "error");
-    }
-
-    const tbody = document.getElementById('ledger-body');
-    if (!isAppend) tbody.innerHTML = '';
-    if (data) {
-        if (data.length < PAGE_LIMIT_TX) {
-            hasMoreTx = false; // Stop auto-loading when out of data
-        }
-
-        const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_TX) || 1;
-        document.getElementById('tx-page-info').innerText = `Page ${txPage} of ${totalPages}`;
-
-        if(data.length === 0 && !isAppend) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-muted);">No transactions found.</td></tr>`;
-            isFetchingTx = false;
-            return;
-        }
-
-        data.forEach((tx, index) => {
-            // ... (keep all your existing status badge, action controls, and HTML generation code exactly as it is here) ...
+        
+        let query = supabaseClient.from('transactions').select('*, students!inner(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });
             
+        if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
+        if(startDate) query = query.gte('transaction_date', startDate);
+        if(endDate) query = query.lte('transaction_date', endDate);
+        if(payMode) query = query.eq('payment_mode', payMode);
+        if(txLevel) query = query.eq('students.level', txLevel);
+        if(txStatus) query = query.eq('status', txStatus); 
+        
+        const from = (txPage - 1) * PAGE_LIMIT_TX;
+        const to = from + PAGE_LIMIT_TX - 1;
+        query = query.range(from, to);
+        
+        if (!isAppend) showLoader(true);
+        const { data, count, error } = await query;
+        if (!isAppend) showLoader(false);
+
+        if (error) {
+            isFetchingTx = false; // CRITICAL FIX: Unlock the fetcher on error
+            if (error.code === 'PGRST103') {
+                txPage = 1;
+                return loadTransactions(isAppend);
+            }
+            return showToast("Error loading transactions: " + error.message, "error");
+        }
+
+        const tbody = document.getElementById('ledger-body');
+        if (!isAppend) tbody.innerHTML = '';
+        
+        if (data) {
+            if (data.length < PAGE_LIMIT_TX) {
+                hasMoreTx = false; // Stop auto-loading when out of data
+            }
+
+            const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_TX) || 1;
+            document.getElementById('tx-page-info').innerText = `Page ${txPage} of ${totalPages}`;
+
+            if(data.length === 0 && !isAppend) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-muted);">No transactions found.</td></tr>`;
+                isFetchingTx = false;
+                return;
+            }
+
+            data.forEach((tx, index) => {
+// ... Keep the rest of your rendering code below this point exactly as it is ...
             // NOTE: Keep your innerHTML append block for the transaction table exactly as you have it written in your current code.
             const badgeClass = tx.transaction_type === 'credit' ? 'badge-credit' : 'badge-debit';
             const displayMode = tx.payment_mode || 'Cash';
@@ -1109,7 +1108,6 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
     
     showLoader(true);
     
-    // Fetch Transactions and Settlements
     const [txRes, setRes] = await Promise.all([
         supabaseClient.from('transactions').select('*, students(name)').eq('created_by', targetId).order('transaction_date', { ascending: false }),
         supabaseClient.from('staff_settlements').select('*').eq('staff_id', targetId).order('created_at', { ascending: false })
@@ -1123,7 +1121,6 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
     currentStaffLedgerData = [];
     let runningBalance = 0;
 
-    // Combine and sort events
     txRes.data.forEach(tx => {
         if(tx.status !== 'verified') return;
         const amt = parseFloat(tx.amount);
@@ -1135,6 +1132,8 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
         if (impact !== 0) {
             runningBalance += impact;
             currentStaffLedgerData.push({
+                rawTx: tx, // Store raw data for editing
+                isSettlement: false,
                 date: new Date(tx.transaction_date),
                 title: `Student: ${tx.students?.name || 'Unknown'}`,
                 desc: `${tx.transaction_type.toUpperCase()} • ${tx.payment_mode}`,
@@ -1147,6 +1146,8 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
         const amt = parseFloat(s.amount);
         runningBalance += amt;
         currentStaffLedgerData.push({
+            rawTx: s,
+            isSettlement: true,
             date: new Date(s.created_at),
             title: `Reimbursement from Admin`,
             desc: `Ref: ${s.payment_details || 'N/A'}`,
@@ -1154,10 +1155,8 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
         });
     });
 
-    // Sort combined data newest first
     currentStaffLedgerData.sort((a, b) => b.date - a.date);
 
-    // Update UI
     const balEl = document.getElementById('staff-ledger-balance');
     balEl.innerText = `₹${runningBalance.toFixed(2)}`;
     balEl.style.color = runningBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
@@ -1170,6 +1169,17 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
             const color = isPositive ? 'var(--success)' : 'var(--danger)';
             const icon = item.title.includes('Reimbursement') ? 'fa-hand-holding-usd' : (isPositive ? 'fa-arrow-down' : 'fa-arrow-up');
             const sign = isPositive ? '+' : '';
+
+            // Inject Admin Actions
+            let adminActions = '';
+            if (userRole === 'admin' && !item.isSettlement) {
+                adminActions = `
+                    <div style="display: flex; gap: 5px; justify-content: flex-end; margin-top: 8px;">
+                        <button class="btn-icon" style="width:28px; height:28px; border: 1px solid var(--border);" title="Edit" onclick="closeModal('modal-staff-ledger'); openEditTransaction('${item.rawTx.id}', '${item.rawTx.transaction_type}', '${item.rawTx.payment_mode || 'Cash'}', '${item.rawTx.amount}', '${item.rawTx.remarks || ''}', '${item.rawTx.transaction_date}')"><i class="fas fa-edit" style="font-size:0.75rem;"></i></button>
+                        <button class="btn-icon delete" style="width:28px; height:28px; border: 1px solid var(--border);" title="Delete" onclick="closeModal('modal-staff-ledger'); deleteTransaction('${item.rawTx.id}')"><i class="fas fa-trash" style="font-size:0.75rem;"></i></button>
+                    </div>
+                `;
+            }
 
             timeline.innerHTML += `
                 <div style="display:flex; align-items:center; justify-content:space-between; padding: 1rem; background: var(--surface-solid); border-radius: 12px; margin-bottom: 0.8rem; border-left: 4px solid ${color};">
@@ -1184,6 +1194,7 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
                     </div>
                     <div style="text-align:right;">
                         <p style="font-weight: 800; font-size: 1.1rem; color: ${color};">${sign}₹${item.impact.toFixed(2)}</p>
+                        ${adminActions}
                     </div>
                 </div>
             `;
@@ -1363,3 +1374,63 @@ async function loadStudentsForDropdown(level) {
         });
     }
 }
+// --- BULK DELETE LOGIC ---
+let pendingBulkDeleteIds = [];
+let pendingBulkDeleteTable = '';
+
+function triggerBulkDelete() {
+    // Determine which tab we are currently on
+    const activeSection = document.querySelector('.data-section.active').id;
+    pendingBulkDeleteTable = activeSection === 'students-section' ? 'students' : (activeSection === 'transactions-section' ? 'transactions' : null);
+    
+    if (!pendingBulkDeleteTable) return;
+
+    // Grab all checked boxes in the current table
+    const tbodyId = pendingBulkDeleteTable === 'students' ? 'students-body' : 'ledger-body';
+    const checkedBoxes = document.querySelectorAll(`#${tbodyId} input[type="checkbox"].row-select:checked`);
+    
+    pendingBulkDeleteIds = Array.from(checkedBoxes).map(cb => cb.value);
+    
+    if (pendingBulkDeleteIds.length === 0) {
+        return showToast("Please select at least one record to delete.", "warning");
+    }
+
+    // Populate the modal and show it
+    document.getElementById('bulk-delete-count').innerText = pendingBulkDeleteIds.length;
+    document.getElementById('bulk-delete-confirm-text').value = ''; 
+    openModal('modal-bulk-delete');
+}
+
+async function executeBulkDelete() {
+    // 1. Enforce the double verification
+    const confirmText = document.getElementById('bulk-delete-confirm-text').value;
+    if (confirmText !== 'CONFIRM') {
+        return showToast("You must type CONFIRM exactly to proceed.", "error");
+    }
+
+    showLoader(true);
+    
+    // 2. Execute the bulk delete using Supabase .in()
+    const { error } = await supabaseClient
+        .from(pendingBulkDeleteTable)
+        .delete()
+        .in('id', pendingBulkDeleteIds);
+        
+    showLoader(false);
+
+    // 3. Handle UI response
+    if (error) {
+        showToast("Bulk Delete Failed: " + error.message, "error");
+    } else {
+        closeModal('modal-bulk-delete');
+        showToast(`Successfully deleted ${pendingBulkDeleteIds.length} records!`);
+        
+        // Uncheck the master header checkboxes
+        document.querySelectorAll('thead input[type="checkbox"]').forEach(cb => cb.checked = false);
+        
+        // Refresh the correct data table
+     // Refresh the correct data table
+        if (pendingBulkDeleteTable === 'students') loadStudents();
+        else loadTransactions();
+    }
+} // <-- This should be the final line of app.js

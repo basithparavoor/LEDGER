@@ -117,6 +117,9 @@
                         </div>
                     </div>
                     <div class="toolbar-group">
+                        <button class="btn-primary admin-only-element" style="background: var(--danger); display:none;" onclick="triggerBulkDelete()">
+    <i class="fas fa-trash-alt"></i> Delete Selected
+</button>
                         <button class="btn-secondary" onclick="exportData('pdf', 'students')"><i class="fas fa-file-pdf"></i> PDF</button>
                         <button class="btn-secondary" onclick="exportData('csv', 'students')"><i class="fas fa-file-csv"></i> CSV</button>
                         <button id="add-student-btn" class="btn-primary" style="display:none;" onclick="openModal('modal-add-student')">
@@ -175,6 +178,9 @@
     </select>
 </div>
                     <div class="toolbar-group">
+                        <button class="btn-primary admin-only-element" style="background: var(--danger); display:none;" onclick="triggerBulkDelete()">
+    <i class="fas fa-trash-alt"></i> Delete Selected
+</button>
                         <button class="btn-secondary" onclick="exportData('pdf', 'transactions')"><i class="fas fa-file-pdf"></i> PDF</button>
                         <button class="btn-secondary" onclick="exportData('csv', 'transactions')"><i class="fas fa-file-csv"></i> CSV</button>
                     </div>
@@ -505,6 +511,28 @@
 
         <div style="max-height: 350px; overflow-y: auto; padding-right: 0.5rem;" id="staff-ledger-timeline">
             <!-- Populated via JS -->
+        </div>
+    </div>
+</div>
+
+<div id="modal-bulk-delete" class="modal-overlay" style="z-index: 1050;">
+    <div class="modal-content" style="max-width: 450px; text-align: center;">
+        <div style="width: 60px; height: 60px; border-radius: 50%; background: #FEE2E2; color: var(--danger); font-size: 1.8rem; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem auto;">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <h3 style="color: var(--danger); margin-bottom: 0.5rem;">Critical Action Warning</h3>
+        <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
+            You are about to permanently delete <span id="bulk-delete-count" style="font-weight: 800; color: var(--text-main);">0</span> records. This action cannot be undone and will wipe all associated data.
+        </p>
+        
+        <div style="text-align: left; background: var(--surface-solid); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 1.5rem;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: var(--text-main); display: block; margin-bottom: 0.5rem;">To proceed, type <strong>CONFIRM</strong> below:</label>
+            <input type="text" id="bulk-delete-confirm-text" class="premium-input" placeholder="Type CONFIRM here" style="margin-bottom: 0; text-align: center; font-weight: 800; letter-spacing: 2px;">
+        </div>
+
+        <div class="modal-actions" style="justify-content: center;">
+            <button class="btn-secondary" onclick="closeModal('modal-bulk-delete')">Cancel</button>
+            <button class="btn-primary" style="background: var(--danger);" onclick="executeBulkDelete()">Permanently Delete</button>
         </div>
     </div>
 </div>
