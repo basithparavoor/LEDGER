@@ -87,14 +87,14 @@
                 <div class="stat-card">
                     <div class="stat-icon bg-blue-light"><i class="fas fa-users text-blue"></i></div>
                     <div class="stat-details">
-                        <p>Total Directory</p>
+                        <p>Total Students</p>
                         <h3 id="stat-total-students">0</h3>
                     </div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon bg-emerald-light"><i class="fas fa-wallet text-emerald"></i></div>
                     <div class="stat-details">
-                        <p>Institution Balance</p>
+                        <p>Balance</p>
                         <h3 id="stat-total-balance">₹0.00</h3>
                     </div>
                 </div>
@@ -185,20 +185,20 @@
                     </div>
                 </div>
                 <div class="table-card premium-glass">
-                    <table class="responsive-table" id="transactions-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 40px;"><input type="checkbox" onclick="toggleAllCheckboxes('ledger-body', this)"></th>
-                                <th>Date</th>
-                                <th>Student</th>
-                                <th>Type, Mode & Status</th>
-                                <th>Amount</th>
-                                <th class="mobile-hide">Remarks</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="ledger-body"></tbody>
-                    </table>
+                   <table class="responsive-table" id="transactions-table">
+    <thead>
+        <tr>
+            <th style="width: 40px;"><input type="checkbox" onclick="toggleAllCheckboxes('ledger-body', this)"></th>
+            <th>Date</th>
+            <th>Student</th>
+            <th>Processed By</th> <th>Type, Mode & Status</th>
+            <th>Amount</th>
+            <th class="mobile-hide">Remarks</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody id="ledger-body"></tbody>
+</table>
                     <div class="pagination-controls">
                         <div style="display:flex; align-items:center; gap: 0.5rem;">
                             <span class="page-info">Rows:</span>
