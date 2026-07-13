@@ -738,55 +738,116 @@ function downloadStudentReportPDF() {
     if(!currentReportStudent) return;
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
     
-    // Premium Header
+    // --- PREMIUM HEADER GRAPHICS ---
     doc.setFillColor(37, 99, 235); // Primary Blue
-    doc.rect(0, 0, 210, 40, 'F');
+    doc.rect(0, 0, pageWidth, 45, 'F');
+    doc.setFillColor(30, 64, 175); // Darker Accent Blue Stripe
+    doc.rect(0, 45, pageWidth, 3, 'F');
+
+    // Abstract Geometric Logo
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(1.2);
+    doc.rect(14, 14, 10, 10, 'S'); // Outline square
+    doc.setFillColor(255, 255, 255);
+    doc.rect(18, 18, 10, 10, 'F'); // Solid overlap square
+
+    // Institution Title
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
     doc.setFont("helvetica", "bold");
-    doc.text("LEDGER INSTITUTION", 14, 20);
-    doc.setFontSize(12);
+    doc.text("LEDGER", 34, 25);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text("Student Financial Statement", 14, 30);
+    doc.text("INSTITUTIONAL FINANCE", 34, 32);
     
-    // Report Metadata
-    doc.setTextColor(15, 23, 42);
-    doc.setFontSize(12);
-    doc.text(`Student Name: ${currentReportStudent.name}`, 14, 50);
-    doc.text(`Current Balance: Rs. ${currentReportStudent.balance.toFixed(2)}`, 14, 58);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 14, 66);
+    // Document Title (Right Aligned)
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("FINANCIAL STATEMENT", pageWidth - 14, 25, { align: 'right' });
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, pageWidth - 14, 32, { align: 'right' });
 
-    // Build the table cleanly from the data, not the HTML
+    // --- REPORT METADATA ---
+    doc.setTextColor(15, 23, 42); // Slate Gray
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("PREPARED FOR:", 14, 60);
+    
+    doc.setFontSize(14);
+    doc.text(currentReportStudent.name.toUpperCase(), 14, 68);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(100, 116, 139); // Muted text
+    doc.setFont("helvetica", "normal");
+    doc.text("Current Standing Balance", 14, 76);
+    
+    // Big Balance Display
+    doc.setTextColor(currentReportStudent.balance < 0 ? 220 : 15, currentReportStudent.balance < 0 ? 38 : 23, currentReportStudent.balance < 0 ? 38 : 42); // Red if negative, else dark
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Rs. ${currentReportStudent.balance.toFixed(2)}`, 14, 85);
+
+    // --- PREMIUM TABLE ---
     if(currentStudentReportData && currentStudentReportData.length > 0) {
         const tableBody = currentStudentReportData.map(tx => {
             const isCredit = tx.transaction_type === 'credit';
             return [
                 new Date(tx.transaction_date).toLocaleDateString('en-GB'),
                 tx.payment_mode || 'Cash',
-                isCredit ? `+ Rs. ${parseFloat(tx.amount).toFixed(2)}` : `- Rs. ${parseFloat(tx.amount).toFixed(2)}`,
-                tx.remarks || '-'
+                tx.remarks || '-',
+                isCredit ? `+ ${parseFloat(tx.amount).toFixed(2)}` : `- ${parseFloat(tx.amount).toFixed(2)}`
             ];
         });
 
         doc.autoTable({
-            startY: 75,
-            head: [['Date', 'Payment Mode', 'Amount', 'Remarks']],
+            startY: 95,
+            head: [['DATE', 'MODE', 'REMARKS', 'AMOUNT (Rs)']],
             body: tableBody,
-            theme: 'grid',
-            headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
-            alternateRowStyles: { fillColor: [248, 250, 252] },
-            styles: { font: 'helvetica', fontSize: 10, cellPadding: 5 }
+            theme: 'plain', // Removes default heavy borders
+            headStyles: { 
+                fillColor: [248, 250, 252], 
+                textColor: [15, 23, 42], 
+                fontStyle: 'bold',
+                lineWidth: { bottom: 0.5 },
+                lineColor: [203, 213, 225]
+            },
+            bodyStyles: {
+                textColor: [51, 65, 85],
+                lineWidth: { bottom: 0.1 },
+                lineColor: [226, 232, 240]
+            },
+            alternateRowStyles: { fillColor: [252, 253, 255] },
+            styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 },
+            columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } } // Align amount right
         });
     } else {
         doc.setFontSize(10);
         doc.setTextColor(100, 116, 139);
-        doc.text("No transactions found for the selected period.", 14, 80);
+        doc.setFont("helvetica", "italic");
+        doc.text("No transactions recorded for this period.", 14, 100);
+    }
+
+    // --- ADD FOOTERS TO ALL PAGES ---
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFillColor(248, 250, 252);
+        doc.rect(0, pageHeight - 15, pageWidth, 15, 'F');
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.text("SECURE LEDGER EXPORT", 14, pageHeight - 6);
+        doc.text(`PAGE ${i} OF ${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
     }
 
     doc.save(`Statement_${currentReportStudent.name.replace(/\s+/g, '_')}.pdf`);
     showToast("Premium Report Downloaded!");
 }
+
 // --- TRANSACTIONS ---
 
 
@@ -1415,38 +1476,87 @@ function downloadStaffLedgerPDF() {
     
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
     
-    // Premium Header
+    // --- PREMIUM HEADER GRAPHICS ---
     doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, 210, 40, 'F');
+    doc.rect(0, 0, pageWidth, 45, 'F');
+    doc.setFillColor(30, 64, 175);
+    doc.rect(0, 45, pageWidth, 3, 'F');
+
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(1.2);
+    doc.rect(14, 14, 10, 10, 'S');
+    doc.setFillColor(255, 255, 255);
+    doc.rect(18, 18, 10, 10, 'F');
+
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
     doc.setFont("helvetica", "bold");
-    doc.text("LEDGER INSTITUTION", 14, 20);
-    doc.setFontSize(12);
+    doc.text("LEDGER", 34, 25);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.text(`Staff Wallet Statement`, 14, 30);
+    doc.text("INTERNAL OPERATIONS", 34, 32);
 
-    doc.setTextColor(15, 23, 42);
-    doc.text(`Staff Member: ${currentStaffLedgerName}`, 14, 50);
-    doc.text(`Generated on: ${new Date().toLocaleString('en-GB')}`, 14, 58);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("STAFF WALLET RECORD", pageWidth - 14, 25, { align: 'right' });
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Exported: ${new Date().toLocaleString('en-GB')}`, pageWidth - 14, 32, { align: 'right' });
+
+    // --- REPORT METADATA ---
+    doc.setTextColor(15, 23, 42); 
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("AUTHORIZED PERSONNEL:", 14, 60);
+    
+    doc.setFontSize(14);
+    doc.text(currentStaffLedgerName.toUpperCase(), 14, 68);
 
     const tableData = currentStaffLedgerData.map(item => [
         item.date.toLocaleDateString('en-GB'),
         item.title,
         item.desc,
-        `Rs. ${item.impact.toFixed(2)}`
+        item.impact > 0 ? `+ ${item.impact.toFixed(2)}` : `- ${Math.abs(item.impact).toFixed(2)}`
     ]);
 
+    // --- PREMIUM TABLE ---
     doc.autoTable({
-        startY: 68,
-        head: [['Date', 'Description', 'Details', 'Impact']],
+        startY: 78,
+        head: [['DATE', 'REFERENCE', 'DETAILS', 'IMPACT (Rs)']],
         body: tableData,
-        theme: 'grid',
-        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        styles: { font: 'helvetica', fontSize: 10, cellPadding: 5 }
+        theme: 'plain',
+        headStyles: { 
+            fillColor: [248, 250, 252], 
+            textColor: [15, 23, 42], 
+            fontStyle: 'bold',
+            lineWidth: { bottom: 0.5 },
+            lineColor: [203, 213, 225]
+        },
+        bodyStyles: {
+            textColor: [51, 65, 85],
+            lineWidth: { bottom: 0.1 },
+            lineColor: [226, 232, 240]
+        },
+        alternateRowStyles: { fillColor: [252, 253, 255] },
+        styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 },
+        columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } } 
     });
+
+    // --- ADD FOOTERS TO ALL PAGES ---
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFillColor(248, 250, 252);
+        doc.rect(0, pageHeight - 15, pageWidth, 15, 'F');
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.text("SECURE INTERNAL DOCUMENT", 14, pageHeight - 6);
+        doc.text(`PAGE ${i} OF ${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
+    }
 
     doc.save(`Wallet_Statement_${currentStaffLedgerName.replace(/\s+/g, '_')}.pdf`);
     showToast("Premium Statement Downloaded!");
@@ -1531,35 +1641,49 @@ function exportData(type, section) {
         link.click();
         showToast("CSV Exported Successfully!");
     } // <--- THIS WAS THE MISSING BRACKET
-    else if (type === 'pdf') {
+  else if (type === 'pdf') {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('landscape');
+        const pageWidth = doc.internal.pageSize.width;
+        const pageHeight = doc.internal.pageSize.height;
         
-        // Premium Header
+        // --- PREMIUM HEADER GRAPHICS ---
         doc.setFillColor(37, 99, 235);
-        doc.rect(0, 0, 297, 40, 'F'); // 297 is landscape width
+        doc.rect(0, 0, pageWidth, 45, 'F');
+        doc.setFillColor(30, 64, 175);
+        doc.rect(0, 45, pageWidth, 3, 'F');
+
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(1.2);
+        doc.rect(14, 14, 10, 10, 'S');
+        doc.setFillColor(255, 255, 255);
+        doc.rect(18, 18, 10, 10, 'F');
+
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(22);
         doc.setFont("helvetica", "bold");
-        doc.text("LEDGER INSTITUTION", 14, 20);
-        doc.setFontSize(12);
+        doc.text("LEDGER", 34, 25);
+        doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
-        doc.text(`${section.toUpperCase()} MASTER DATA EXPORT`, 14, 30);
+        doc.text("INSTITUTIONAL FINANCE", 34, 32);
 
-        doc.setTextColor(15, 23, 42);
-        doc.text(`Generated on: ${new Date().toLocaleString('en-GB')}`, 14, 50);
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text(`${section.toUpperCase()} MASTER RECORD`, pageWidth - 14, 25, { align: 'right' });
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Exported: ${new Date().toLocaleString('en-GB')}`, pageWidth - 14, 32, { align: 'right' });
 
-        // Manually parse the table to extract clean data
+        // Manually parse the table
         let tableHeaders = [];
         let tableBody = [];
+        const table = document.querySelector(tableId);
 
-        // Extract Headers (Skipping Checkbox and Actions columns)
         const headerCells = table.querySelectorAll("thead th");
         for (let i = 1; i < headerCells.length - 1; i++) { 
             tableHeaders.push(headerCells[i].innerText);
         }
 
-        // Extract Body (Skipping Checkbox and Actions columns)
         const rows = table.querySelectorAll("tbody tr");
         rows.forEach(row => {
             let rowData = [];
@@ -1573,15 +1697,40 @@ function exportData(type, section) {
             }
         });
 
+        // --- PREMIUM TABLE ---
         doc.autoTable({
             startY: 60,
             head: [tableHeaders],
             body: tableBody,
-            theme: 'grid',
-            headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
-            alternateRowStyles: { fillColor: [248, 250, 252] },
-            styles: { font: 'helvetica', fontSize: 10, cellPadding: 6 }
+            theme: 'plain',
+            headStyles: { 
+                fillColor: [248, 250, 252], 
+                textColor: [15, 23, 42], 
+                fontStyle: 'bold',
+                lineWidth: { bottom: 0.5 },
+                lineColor: [203, 213, 225]
+            },
+            bodyStyles: {
+                textColor: [51, 65, 85],
+                lineWidth: { bottom: 0.1 },
+                lineColor: [226, 232, 240]
+            },
+            alternateRowStyles: { fillColor: [252, 253, 255] },
+            styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 }
         });
+
+        // --- ADD FOOTERS TO ALL PAGES ---
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFillColor(248, 250, 252);
+            doc.rect(0, pageHeight - 15, pageWidth, 15, 'F');
+            doc.setTextColor(148, 163, 184);
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.text("SECURE MASTER DATA EXPORT", 14, pageHeight - 6);
+            doc.text(`PAGE ${i} OF ${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
+        }
 
         doc.save(`${filename}.pdf`);
         showToast("Premium PDF Exported Successfully!");
