@@ -65,13 +65,18 @@
         </nav>
 
         <main class="content bg-mesh">
-            <header class="topbar">
+           <header class="topbar">
     <div class="topbar-left">
         <button id="mobile-menu-btn" onclick="toggleMobileMenu()"><i class="fas fa-bars"></i></button>
         <h1 id="section-title">Directory Overview</h1>
     </div>
-    <div class="topbar-right">
-        <!-- Desktop logout is in the sidebar, but we need this one specifically for mobile -->
+    <div class="topbar-right" style="display: flex; align-items: center; gap: 1rem;">
+        
+        <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end;">
+            <span id="topbar-user-name" style="font-weight: 800; font-size: 0.95rem; color: var(--primary); white-space: nowrap;">Loading...</span>
+            <span id="topbar-user-role" style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">STAFF</span>
+        </div>
+
         <button class="btn-icon mobile-logout-btn" title="Secure Logout" onclick="logout()">
             <i class="fas fa-sign-out-alt" style="color: var(--danger); font-size: 1.2rem;"></i>
         </button>

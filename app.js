@@ -360,24 +360,42 @@ async function login() {
 
 async function checkUserRole(userId) {
     const { data } = await supabaseClient.from('profiles').select('*').eq('id', userId).maybeSingle();
+    
     if (data) {
         userRole = data.role;
         currentProfileName = data.name || 'Staff Member';
         
+        // Update Sidebar
         document.getElementById('user-role-badge').innerText = userRole.toUpperCase();
         document.getElementById('display-user-name').innerText = currentProfileName;
         
+        // NEW: Update Topbar
+        const topNameEl = document.getElementById('topbar-user-name');
+        const topRoleEl = document.getElementById('topbar-user-role');
+        if (topNameEl) topNameEl.innerText = currentProfileName;
+        if (topRoleEl) topRoleEl.innerText = userRole.toUpperCase();
+        
+        // Admin vs Staff UI Toggle
         if (userRole === 'admin') {
             document.getElementById('add-student-btn').style.display = 'inline-flex';
             document.getElementById('admin-users-tab').style.display = 'flex';
-            // Add inside checkUserRole under if (userRole === 'admin') {
-document.querySelectorAll('.admin-only-element').forEach(el => el.style.display = 'inline-flex');
+            document.querySelectorAll('.admin-only-element').forEach(el => el.style.display = 'inline-flex');
         } else if (userRole === 'staff') {
             document.getElementById('staff-wallet-tab').style.display = 'flex';
         }
     } else {
+        // Fallback if profile doesn't exist
+        const fallbackName = currentUser.email.split('@')[0];
+        
+        // Update Sidebar Fallback
         document.getElementById('user-role-badge').innerText = "STAFF";
-        document.getElementById('display-user-name').innerText = currentUser.email.split('@')[0];
+        document.getElementById('display-user-name').innerText = fallbackName;
+        
+        // Update Topbar Fallback
+        const topNameEl = document.getElementById('topbar-user-name');
+        const topRoleEl = document.getElementById('topbar-user-role');
+        if (topNameEl) topNameEl.innerText = fallbackName;
+        if (topRoleEl) topRoleEl.innerText = "STAFF";
     }
 }
 
