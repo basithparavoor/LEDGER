@@ -329,18 +329,10 @@ display: flex; position: fixed; bottom: 95px; right: 20px;
     .mobile-fab:active { transform: scale(0.92); }
 }
 
-/* Style restored pagination for mobile */
+/* Hide pagination buttons on mobile since it uses Auto-Load scrolling */
     .pagination-controls { 
-        display: flex !important; 
-        flex-direction: column; 
-        gap: 1rem; 
-        padding: 1rem; 
-        background: var(--surface-solid);
-        border-radius: var(--radius-xl);
-        border: 1px solid var(--border);
-        margin-bottom: 1rem;
+        display: none !important; 
     }
-
 /* =========================================
        MOBILE SEARCH & TOOLBAR OPTIMIZATION
        ========================================= */

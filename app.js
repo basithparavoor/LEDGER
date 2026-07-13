@@ -442,107 +442,121 @@ function debouncedSearch(type) {
     }, 400);
 }
 // --- STUDENTS ---
-async function loadStudents() {
-    const searchTerm = document.getElementById('search-student')?.value.trim() || '';
-    const levelFilter = document.getElementById('filter-level')?.value || '';
-    
-    // 1. Prepare main query
-    let query = supabaseClient.from('students').select('*', { count: 'exact' }).order('created_at', { ascending: false });
-    let statQuery = supabaseClient.from('students').select('balance');
-    
-    // MULTI-FIELD SEARCH: Search across Name, Roll Number, or Contact Info
-    if (searchTerm) {
-        const searchFilter = `name.ilike.%${searchTerm}%,roll_number.ilike.%${searchTerm}%,contact_info.ilike.%${searchTerm}%`;
-        query = query.or(searchFilter);
-        statQuery = statQuery.or(searchFilter);
-    }
-    
-    if (levelFilter) {
-        query = query.eq('level', levelFilter);
-        statQuery = statQuery.eq('level', levelFilter);
-    }
-    
-    // Calculate Pagination Range
-    const from = (studentPage - 1) * PAGE_LIMIT_STUDENTS;
-    const to = from + PAGE_LIMIT_STUDENTS - 1;
-    query = query.range(from, to);
+async function loadStudents(isAppend = false) {
+    if (isFetchingStudents) return;
+    isFetchingStudents = true;
 
-    showLoader(true);
-    // 2. Execute concurrently
-    const [mainRes, statsRes] = await Promise.all([query, statQuery]);
-    showLoader(false);
-
-    const { data, count, error } = mainRes;
-    const { data: statsData } = statsRes;
-
-    const tbody = document.getElementById('students-body');
-    tbody.innerHTML = '';
-    
-    if (error) {
-        // Catch 416 Out of Bounds error and auto-correct to page 1
-        if (error.code === 'PGRST103') {
-            studentPage = 1;
-            return loadStudents();
-        }
-        return showToast("Error loading students: " + error.message, "error");
-    }
-    if (data) {
-        // Update Stats
-        if(statsData) {
-            const totalBal = statsData.reduce((sum, s) => sum + parseFloat(s.balance || 0), 0);
-            document.getElementById('stat-total-students').innerText = statsData.length;
-            document.getElementById('stat-total-balance').innerText = `₹${totalBal.toFixed(2)}`;
-        }
-
-        // Update Pagination UI Info
-        const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_STUDENTS) || 1;
-        document.getElementById('student-page-info').innerText = `Page ${studentPage} of ${totalPages}`;
+    try {
+        const searchTerm = document.getElementById('search-student')?.value.trim() || '';
+        const levelFilter = document.getElementById('filter-level')?.value || '';
         
-        if(data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 2rem; color: var(--text-muted);">No records found.</td></tr>`;
-            return;
+        if (!isAppend) {
+            studentPage = 1;
+            hasMoreStudents = true;
+        }
+        
+        let query = supabaseClient.from('students').select('*', { count: 'exact' }).order('created_at', { ascending: false });
+        let statQuery = supabaseClient.from('students').select('balance');
+        
+        if (searchTerm) {
+            const searchFilter = `name.ilike.%${searchTerm}%,roll_number.ilike.%${searchTerm}%,contact_info.ilike.%${searchTerm}%`;
+            query = query.or(searchFilter);
+            statQuery = statQuery.or(searchFilter);
+        }
+        
+        if (levelFilter) {
+            query = query.eq('level', levelFilter);
+            statQuery = statQuery.eq('level', levelFilter);
+        }
+        
+        const from = (studentPage - 1) * PAGE_LIMIT_STUDENTS;
+        const to = from + PAGE_LIMIT_STUDENTS - 1;
+        query = query.range(from, to);
+
+        if (!isAppend) showLoader(true);
+        const [mainRes, statsRes] = await Promise.all([query, statQuery]);
+        if (!isAppend) showLoader(false);
+
+        const { data, count, error } = mainRes;
+        const { data: statsData } = statsRes;
+
+        if (error) {
+            if (error.code === 'PGRST103') {
+                studentPage = 1;
+                isFetchingStudents = false;
+                return loadStudents(isAppend);
+            }
+            throw new Error(error.message);
         }
 
-        data.forEach((student, index) => {
-            const currentBalance = parseFloat(student.balance || 0);
-            const balanceColor = currentBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
-            const stdLevel = student.level || 'General';
-            const delay = index * 0.05;
-            
-            let actionControls = '';
-            if (userRole === 'admin') {
-                actionControls = `
-                    <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem; margin-right: 5px;" onclick="viewStudentReport('${student.id}', '${student.name.replace(/'/g, "\\'")}', ${currentBalance})">
-                        <i class="fas fa-chart-line text-emerald"></i>
-                    </button>
-                    <button class="btn-icon" title="Edit" onclick="openEditStudent('${student.id}', '${student.name.replace(/'/g, "\\'")}', '${student.roll_number || ''}', '${stdLevel}', '${student.contact_info || ''}')"><i class="fas fa-edit"></i></button>
-                    <button class="btn-icon delete" title="Delete" onclick="deleteStudent('${student.id}')"><i class="fas fa-trash"></i></button>
-                `;
+        const tbody = document.getElementById('students-body');
+        if (!isAppend) tbody.innerHTML = '';
+        
+        if (data) {
+            if (data.length < PAGE_LIMIT_STUDENTS) {
+                hasMoreStudents = false; // Stop auto-loading if we run out of data
             }
 
-            const studentStr = encodeURIComponent(JSON.stringify(student));
+            if(statsData && !isAppend) {
+                const totalBal = statsData.reduce((sum, s) => sum + parseFloat(s.balance || 0), 0);
+                document.getElementById('stat-total-students').innerText = statsData.length;
+                document.getElementById('stat-total-balance').innerText = `₹${totalBal.toFixed(2)}`;
+            }
 
-            tbody.innerHTML += `
-                <tr class="row-enter mobile-tile-row" style="animation-delay: ${delay}s" onclick="openMobileDetails(event, 'student', '${studentStr}')">
-                    <td data-label="Select"><input type="checkbox" class="row-select" value="${student.id}"></td>
-                    <td data-label="Name & ID">
-                        <div>
-                            <span style="font-weight: 700; color: var(--text-main); font-size:1.05rem;">${student.name}</span>
-                            <span style="font-size: 0.8rem; color: var(--text-muted); display: block;">${student.roll_number || 'No ID'}</span>
-                        </div>
-                    </td>
-                    <td data-label="Level" class="mobile-hide"><span class="badge badge-level">${stdLevel}</span></td>
-                    <td data-label="Contact" class="mobile-hide">${student.contact_info || '-'}</td>
-                    <td data-label="Balance" style="color: ${balanceColor}; font-weight: 800; font-size: 1.1rem;">₹${currentBalance.toFixed(2)}</td>
-                    <td data-label="Actions" class="mobile-actions">
-                        <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem; margin-right: 5px;" onclick="openAddTransaction('${student.id}')">
-                            <i class="fas fa-plus text-blue"></i>
+            const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_STUDENTS) || 1;
+            document.getElementById('student-page-info').innerText = `Page ${studentPage} of ${totalPages}`;
+            
+            if(data.length === 0 && !isAppend) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 2rem; color: var(--text-muted);">No records found.</td></tr>`;
+                isFetchingStudents = false;
+                return;
+            }
+
+            data.forEach((student, index) => {
+                const currentBalance = parseFloat(student.balance || 0);
+                const balanceColor = currentBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
+                const stdLevel = student.level || 'General';
+                const delay = index * 0.05;
+                
+                let actionControls = '';
+                if (userRole === 'admin') {
+                    actionControls = `
+                        <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem; margin-right: 5px;" onclick="viewStudentReport('${student.id}', '${student.name.replace(/'/g, "\\'")}', ${currentBalance})">
+                            <i class="fas fa-chart-line text-emerald"></i>
                         </button>
-                        ${actionControls}
-                    </td>
-                </tr>
-            `;
-        });
+                        <button class="btn-icon" title="Edit" onclick="openEditStudent('${student.id}', '${student.name.replace(/'/g, "\\'")}', '${student.roll_number || ''}', '${stdLevel}', '${student.contact_info || ''}')"><i class="fas fa-edit"></i></button>
+                        <button class="btn-icon delete" title="Delete" onclick="deleteStudent('${student.id}')"><i class="fas fa-trash"></i></button>
+                    `;
+                }
+
+                const studentStr = encodeURIComponent(JSON.stringify(student));
+
+                tbody.innerHTML += `
+                    <tr class="row-enter mobile-tile-row" style="animation-delay: ${delay}s" onclick="openMobileDetails(event, 'student', '${studentStr}')">
+                        <td data-label="Select"><input type="checkbox" class="row-select" value="${student.id}"></td>
+                        <td data-label="Name & ID">
+                            <div>
+                                <span style="font-weight: 700; color: var(--text-main); font-size:1.05rem;">${student.name}</span>
+                                <span style="font-size: 0.8rem; color: var(--text-muted); display: block;">${student.roll_number || 'No ID'}</span>
+                            </div>
+                        </td>
+                        <td data-label="Level" class="mobile-hide"><span class="badge badge-level">${stdLevel}</span></td>
+                        <td data-label="Contact" class="mobile-hide">${student.contact_info || '-'}</td>
+                        <td data-label="Balance" style="color: ${balanceColor}; font-weight: 800; font-size: 1.1rem;">₹${currentBalance.toFixed(2)}</td>
+                        <td data-label="Actions" class="mobile-actions">
+                            <button class="btn-secondary" style="padding: 0.4rem 0.6rem; font-size: 0.75rem; margin-right: 5px;" onclick="openAddTransaction('${student.id}')">
+                                <i class="fas fa-plus text-blue"></i>
+                            </button>
+                            ${actionControls}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+    } catch (err) {
+        showToast("Error loading students: " + err.message, "error");
+    } finally {
+        isFetchingStudents = false; // Always unlocks
     }
 }
 
@@ -1490,4 +1504,28 @@ async function executeBulkDelete() {
     if (pendingBulkDeleteTable === 'students') loadStudents();
         else loadTransactions();
     }
+
+    // --- MOBILE INFINITE SCROLL (AUTO-LOAD) ---
+window.addEventListener('scroll', () => {
+    // Only run auto-load logic on mobile views (screens 900px or smaller)
+    if (window.innerWidth > 900) return;
+
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = window.innerHeight;
+    
+    // If the user scrolls within 200px of the bottom of the page
+    if (scrollTop + clientHeight >= scrollHeight - 200) {
+        const activeSection = document.querySelector('.data-section.active')?.id;
+        
+        if (activeSection === 'students-section' && !isFetchingStudents && hasMoreStudents) {
+            studentPage++;
+            loadStudents(true); // Loads next batch seamlessly
+        } else if (activeSection === 'transactions-section' && !isFetchingTx && hasMoreTx) {
+            txPage++;
+            loadTransactions(true); // Loads next batch seamlessly
+        }
+    }
+}, { passive: true });
+
 } // <-- This should be the final line of app.js
