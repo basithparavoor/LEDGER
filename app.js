@@ -10,6 +10,7 @@ let searchTimeout;
 
 // ADD IT RIGHT HERE:
 let currentReportStudent = null; 
+let currentStudentReportData = []; // Adds a global bucket for the PDF to read
 
 // DYNAMIC STATE
 let PAGE_LIMIT_STUDENTS = 8;
@@ -658,6 +659,11 @@ async function viewStudentReport(studentId, studentName, currentBalance, startDa
         }
     });
 
+    // Add this right under filteredData.push(tx); loop or after the loop finishes:
+    currentStudentReportData = filteredData;
+    
+    const closingBalance = openingBalance + periodCredit - periodDebit;
+
     const closingBalance = openingBalance + periodCredit - periodDebit;
 
     document.getElementById('report-total-credit').innerText = `₹${periodCredit.toFixed(2)}`;
@@ -719,19 +725,54 @@ function downloadStudentReportPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     
-    doc.setFontSize(18);
-    doc.text("Student Financial Report", 14, 20);
+    // Premium Header
+    doc.setFillColor(37, 99, 235); // Primary Blue
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text("LEDGER INSTITUTION", 14, 20);
     doc.setFontSize(12);
-    doc.text(`Name: ${currentReportStudent.name}`, 14, 30);
-    doc.text(`Current Balance: Rs. ${currentReportStudent.balance.toFixed(2)}`, 14, 38);
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 46);
+    doc.setFont("helvetica", "normal");
+    doc.text("Student Financial Statement", 14, 30);
     
-    doc.text("Exported detailed history view is not available for timelines directly. Please use global CSV export.", 14, 55);
+    // Report Metadata
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(12);
+    doc.text(`Student Name: ${currentReportStudent.name}`, 14, 50);
+    doc.text(`Current Balance: Rs. ${currentReportStudent.balance.toFixed(2)}`, 14, 58);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 14, 66);
 
-    doc.save(`Report_${currentReportStudent.name.replace(/\s+/g, '_')}.pdf`);
-    showToast("Report Downloaded Successfully!");
+    // Build the table cleanly from the data, not the HTML
+    if(currentStudentReportData && currentStudentReportData.length > 0) {
+        const tableBody = currentStudentReportData.map(tx => {
+            const isCredit = tx.transaction_type === 'credit';
+            return [
+                new Date(tx.transaction_date).toLocaleDateString('en-GB'),
+                tx.payment_mode || 'Cash',
+                isCredit ? `+ Rs. ${parseFloat(tx.amount).toFixed(2)}` : `- Rs. ${parseFloat(tx.amount).toFixed(2)}`,
+                tx.remarks || '-'
+            ];
+        });
+
+        doc.autoTable({
+            startY: 75,
+            head: [['Date', 'Payment Mode', 'Amount', 'Remarks']],
+            body: tableBody,
+            theme: 'grid',
+            headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+            alternateRowStyles: { fillColor: [248, 250, 252] },
+            styles: { font: 'helvetica', fontSize: 10, cellPadding: 5 }
+        });
+    } else {
+        doc.setFontSize(10);
+        doc.setTextColor(100, 116, 139);
+        doc.text("No transactions found for the selected period.", 14, 80);
+    }
+
+    doc.save(`Statement_${currentReportStudent.name.replace(/\s+/g, '_')}.pdf`);
+    showToast("Premium Report Downloaded!");
 }
-
 // --- TRANSACTIONS ---
 
 
@@ -1283,10 +1324,20 @@ function downloadStaffLedgerPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     
-    doc.setFontSize(18);
-    doc.text(`${currentStaffLedgerName} - Wallet Statement`, 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+    // Premium Header
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text("LEDGER INSTITUTION", 14, 20);
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Staff Wallet Statement`, 14, 30);
+
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Staff Member: ${currentStaffLedgerName}`, 14, 50);
+    doc.text(`Generated on: ${new Date().toLocaleString('en-GB')}`, 14, 58);
 
     const tableData = currentStaffLedgerData.map(item => [
         item.date.toLocaleDateString('en-GB'),
@@ -1296,15 +1347,17 @@ function downloadStaffLedgerPDF() {
     ]);
 
     doc.autoTable({
-        startY: 35,
+        startY: 68,
         head: [['Date', 'Description', 'Details', 'Impact']],
         body: tableData,
         theme: 'grid',
-        headStyles: { fillColor: [37, 99, 235] }
+        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        styles: { font: 'helvetica', fontSize: 10, cellPadding: 5 }
     });
 
     doc.save(`Wallet_Statement_${currentStaffLedgerName.replace(/\s+/g, '_')}.pdf`);
-    showToast("Statement Downloaded!");
+    showToast("Premium Statement Downloaded!");
 }
 
 async function addStaff() {
@@ -1387,29 +1440,65 @@ function exportData(type, section) {
         link.click();
         showToast("CSV Exported Successfully!");
         
-    } else if (type === 'pdf') {
+  else if (type === 'pdf') {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('landscape');
         
-        doc.setFontSize(16);
-        doc.text(`LEDGER Institution - ${section.toUpperCase()} Data Export`, 14, 15);
-        doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
+        // Premium Header
+        doc.setFillColor(37, 99, 235);
+        doc.rect(0, 0, 297, 40, 'F'); // 297 is landscape width
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.setFont("helvetica", "bold");
+        doc.text("LEDGER INSTITUTION", 14, 20);
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${section.toUpperCase()} MASTER DATA EXPORT`, 14, 30);
+
+        doc.setTextColor(15, 23, 42);
+        doc.text(`Generated on: ${new Date().toLocaleString('en-GB')}`, 14, 50);
+
+        // Manually parse the table to extract clean data
+        let tableHeaders = [];
+        let tableBody = [];
+        const table = document.querySelector(tableId);
+
+        // Extract Headers (Skipping Checkbox and Actions columns)
+        const headerCells = table.querySelectorAll("thead th");
+        for (let i = 1; i < headerCells.length - 1; i++) { 
+            tableHeaders.push(headerCells[i].innerText);
+        }
+
+        // Extract Body (Skipping Checkbox and Actions columns)
+        const rows = table.querySelectorAll("tbody tr");
+        rows.forEach(row => {
+            let rowData = [];
+            const cells = row.querySelectorAll("td");
+            if (cells.length > 2) { 
+                for (let i = 1; i < cells.length - 1; i++) {
+                    // Replace newlines with a dash for clean PDF reading
+                    let cellText = cells[i].innerText.replace(/\n/g, ' • ').trim();
+                    rowData.push(cellText);
+                }
+                tableBody.push(rowData);
+            }
+        });
 
         doc.autoTable({
-            html: tableId,
-            startY: 28,
+            startY: 60,
+            head: [tableHeaders],
+            body: tableBody,
             theme: 'grid',
-            headStyles: { fillColor: [37, 99, 235] },
-            columns: section === 'students' ? 
-                [{header: 'Name/ID', dataKey: 1}, {header: 'Level', dataKey: 2}, {header: 'Contact', dataKey: 3}, {header: 'Balance', dataKey: 4}] : 
-                [{header: 'Date', dataKey: 1}, {header: 'Student', dataKey: 2}, {header: 'Type/Mode', dataKey: 3}, {header: 'Amount', dataKey: 4}, {header: 'Remarks', dataKey: 5}]
+            headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+            alternateRowStyles: { fillColor: [248, 250, 252] },
+            styles: { font: 'helvetica', fontSize: 10, cellPadding: 6 }
         });
 
         doc.save(`${filename}.pdf`);
-        showToast("PDF Exported Successfully!");
+        showToast("Premium PDF Exported Successfully!");
     }
 }
+
 
 function openGlobalAddTransaction() {
     document.getElementById('tx-modal-title').innerText = "New Transaction";
