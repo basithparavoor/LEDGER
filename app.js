@@ -791,7 +791,13 @@ function openAddTransaction(studentId) {
     
     openModal('modal-transaction');
 }
+
+let isSavingTx = false; // Master Lock
+
 async function saveTransaction() {
+    if (isSavingTx) return; 
+    isSavingTx = true;
+
     const txId = document.getElementById('tx-id').value;
     const studentId = document.getElementById('tx-student-id').value;
     const type = document.getElementById('tx-type').value;
@@ -801,48 +807,68 @@ async function saveTransaction() {
     const txDate = document.getElementById('tx-date').value;
     const sentToAdmin = document.getElementById('tx-sent-to-admin').checked;
     
-    if(!amount || amount <= 0) return showToast("Enter a valid amount!", "error");
+    if(!amount || amount <= 0) {
+        isSavingTx = false;
+        return showToast("Enter a valid amount!", "error");
+    }
     
     let txStatus = 'verified';
     if (userRole === 'staff' && type === 'credit' && sentToAdmin) {
         txStatus = 'pending';
     }
 
+    // Build payload WITHOUT the student_id first
     const transactionData = {
-        student_id: studentId, transaction_type: type, payment_mode: mode, 
+        transaction_type: type, payment_mode: mode, 
         amount, remarks, transaction_date: txDate, created_by: currentUser?.id, 
         status: txStatus, sent_to_admin: sentToAdmin 
     };
 
-    // OFFLINE HANDLING
+    // CRITICAL FIX: Only attach student_id if we actually have one (prevents 400 Bad Request on Edit)
+    if (studentId) {
+        transactionData.student_id = studentId;
+    }
+
     if (!navigator.onLine) {
-        if (txId) return showToast("Cannot edit transactions while offline.", "error"); // Editing offline is too complex for basic queues
-        
+        if (txId) {
+            isSavingTx = false;
+            return showToast("Cannot edit transactions while offline.", "error"); 
+        }
         const offlineQueue = JSON.parse(localStorage.getItem('ledger_offline_tx') || '[]');
         offlineQueue.push(transactionData);
         localStorage.setItem('ledger_offline_tx', JSON.stringify(offlineQueue));
-        
         closeModal('modal-transaction');
+        isSavingTx = false;
         return showToast("Offline: Transaction queued securely.", "warning");
     }
     
     showLoader(true);
     let error;
     if (txId) {
+        // Edit Mode (PATCH)
         const res = await supabaseClient.from('transactions').update(transactionData).eq('id', txId);
         error = res.error;
     } else {
+        // Insert Mode (POST)
         const res = await supabaseClient.from('transactions').insert([transactionData]);
         error = res.error;
     }
     showLoader(false);
     
-    if (error) showToast("Error: " + error.message, "error");
-    else {
+    if (error) {
+        showToast("Error: " + error.message, "error");
+    } else {
         closeModal('modal-transaction');
-        showToast(txStatus === 'pending' ? "Sent to Admin for verification!" : "Transaction recorded locally!");
-        loadTransactions();
+        showToast(txStatus === 'pending' ? "Sent to Admin for verification!" : "Transaction recorded!");
+        
+        if (document.getElementById('transactions-section').classList.contains('active')) {
+            loadTransactions();
+        } else if (document.getElementById('students-section').classList.contains('active')) {
+            loadStudents(); 
+        }
     }
+    
+    isSavingTx = false;
 }
 
 // Function to process queued transactions when back online
@@ -884,9 +910,8 @@ async function loadTransactions(isAppend = false) {
             hasMoreTx = true;
         }
         
-        let query = supabaseClient.from('transactions').select('*, students!inner(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });
-            
-        if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
+// Remove !inner to prevent the query from crashing if a student was deleted
+let query = supabaseClient.from('transactions').select('*, students(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });        if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
         if(startDate) query = query.gte('transaction_date', startDate);
         if(endDate) query = query.lte('transaction_date', endDate);
         if(payMode) query = query.eq('payment_mode', payMode);
@@ -907,7 +932,7 @@ async function loadTransactions(isAppend = false) {
                 isFetchingTx = false;
                 return loadTransactions(isAppend);
             }
-            throw new Error(error.message); // Send to catch block
+            throw new Error(error.message); 
         }
 
         const tbody = document.getElementById('ledger-body');
@@ -934,6 +959,10 @@ async function loadTransactions(isAppend = false) {
                 const statusBadgeClass = currentStatus === 'pending' ? 'badge-pending' : (currentStatus === 'rejected' ? 'badge-rejected' : 'badge-verified');
                 const delay = index * 0.05;
                 
+                // SAFE PARSING: Prevents crashes from missing students or weird text characters
+                const studentName = tx.students?.name || 'Unknown Student';
+                const safeRemarks = (tx.remarks || '').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+                
                 let actionControls = '';
                 if (userRole === 'admin') {
                     if (currentStatus === 'pending') {
@@ -943,7 +972,7 @@ async function loadTransactions(isAppend = false) {
                         `;
                     }
                     actionControls += `
-                        <button class="btn-icon" title="Edit" onclick="openEditTransaction('${tx.id}', '${tx.transaction_type}', '${displayMode}', '${tx.amount}', '${tx.remarks}', '${tx.transaction_date}')"><i class="fas fa-edit"></i></button>
+                        <button class="btn-icon" title="Edit" onclick="openEditTransaction('${tx.id}', '${tx.transaction_type}', '${displayMode}', '${tx.amount}', '${safeRemarks}', '${tx.transaction_date}')"><i class="fas fa-edit"></i></button>
                         <button class="btn-icon delete" title="Delete" onclick="deleteTransaction('${tx.id}')"><i class="fas fa-trash"></i></button>
                     `;
                 }
@@ -954,7 +983,7 @@ async function loadTransactions(isAppend = false) {
                     <tr class="row-enter mobile-tile-row" style="animation-delay: ${delay}s" onclick="openMobileDetails(event, 'tx', '${txStr}')">
                         <td data-label="Select"><input type="checkbox" class="row-select" value="${tx.id}"></td>
                         <td data-label="Date" style="font-weight: 500;">${new Date(tx.transaction_date).toLocaleDateString('en-GB')}</td>
-                        <td data-label="Student" style="font-weight: 700;">${tx.students.name}</td>
+                        <td data-label="Student" style="font-weight: 700;">${studentName}</td>
                         <td data-label="Type, Mode & Status">
                             <div style="display: flex; gap: 4px; flex-wrap: wrap;">
                                 <span class="badge ${badgeClass}">${tx.transaction_type.toUpperCase()}</span>
@@ -975,7 +1004,7 @@ async function loadTransactions(isAppend = false) {
     } catch (err) {
         showToast("Error loading transactions: " + err.message, "error");
     } finally {
-        isFetchingTx = false; // Always unlocks, even if the code fails
+        isFetchingTx = false; 
     }
 }
 
@@ -1432,6 +1461,7 @@ async function executeBulkDelete() {
         // Refresh the correct data table
      // Refresh the correct data table
         if (pendingBulkDeleteTable === 'students') loadStudents();
+    if (pendingBulkDeleteTable === 'students') loadStudents();
         else loadTransactions();
     }
 } // <-- This should be the final line of app.js
