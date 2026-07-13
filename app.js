@@ -1286,8 +1286,8 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
     const { data: profileData } = await supabaseClient.from('profiles').select('role').eq('id', targetId).single();
     const isTargetAdmin = profileData ? profileData.role === 'admin' : false;
 
-    // 2. Adjust the query: Admins see their own txs PLUS any handovers from staff
-    let query = supabaseClient.from('transactions').select('*, students(name), profiles(name)').order('transaction_date', { ascending: false });
+    // 2. Adjust the query: REMOVED profiles(name) to prevent 400 Bad Request
+    let query = supabaseClient.from('transactions').select('*, students(name)').order('transaction_date', { ascending: false });
     if (isTargetAdmin) {
         query = query.or(`created_by.eq.${targetId},sent_to_admin.eq.true`);
     } else {
@@ -1299,6 +1299,16 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
         supabaseClient.from('staff_settlements').select('*').eq('staff_id', targetId).order('created_at', { ascending: false })
     ]);
     
+    // 3. NEW: Manually fetch profile names to bypass Supabase join limitations
+    let profileMap = {};
+    if (txRes.data && txRes.data.length > 0) {
+        const profileIds = [...new Set(txRes.data.map(t => t.created_by).filter(id => id))];
+        if (profileIds.length > 0) {
+            const { data: profData } = await supabaseClient.from('profiles').select('id, name').in('id', profileIds);
+            if (profData) profData.forEach(p => profileMap[p.id] = p.name || 'Unknown User');
+        }
+    }
+
     showLoader(false);
     if(txRes.error || setRes.error) return showToast("Error loading ledger.", "error");
 
@@ -1307,7 +1317,7 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
     currentStaffLedgerData = [];
     let runningBalance = 0;
 
-    // 3. Process the timeline
+    // 4. Process the timeline
     txRes.data.forEach(tx => {
         if(tx.status !== 'verified') return;
         const amt = parseFloat(tx.amount);
@@ -1320,9 +1330,9 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
             if (tx.transaction_type === 'credit' && !tx.sent_to_admin) impact = amt;
             if (tx.transaction_type === 'debit') impact = -amt;
         } else if (isTargetAdmin && tx.sent_to_admin && tx.transaction_type === 'credit') {
-            // Cash Handover received by this Admin
+            // Cash Handover received by this Admin (Uses the new manual profile map)
             impact = amt;
-            title = `Handover from ${tx.profiles?.name || 'Staff'}`;
+            title = `Handover from ${profileMap[tx.created_by] || 'Staff'}`;
             desc = `Student: ${tx.students?.name || 'Unknown'}`;
         }
         
