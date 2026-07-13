@@ -346,6 +346,10 @@ async function login() {
     
     currentUser = data.user;
     await checkUserRole(currentUser.id);
+    
+    // CRITICAL FIX: Strip the "Nuke" inline style so the dashboard can actually become visible
+    document.getElementById('dashboard-screen').style.display = ''; 
+    
     document.getElementById('login-screen').classList.remove('active');
     document.getElementById('dashboard-screen').classList.add('active');
     document.getElementById('tx-date').valueAsDate = new Date();
