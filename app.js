@@ -902,12 +902,12 @@ async function loadTransactions(isAppend = false) {
         if (!isAppend) showLoader(false);
 
         if (error) {
-            isFetchingTx = false; // CRITICAL FIX: Unlock the fetcher on error
             if (error.code === 'PGRST103') {
                 txPage = 1;
+                isFetchingTx = false;
                 return loadTransactions(isAppend);
             }
-            return showToast("Error loading transactions: " + error.message, "error");
+            throw new Error(error.message); // Send to catch block
         }
 
         const tbody = document.getElementById('ledger-body');
@@ -915,7 +915,7 @@ async function loadTransactions(isAppend = false) {
         
         if (data) {
             if (data.length < PAGE_LIMIT_TX) {
-                hasMoreTx = false; // Stop auto-loading when out of data
+                hasMoreTx = false;
             }
 
             const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_TX) || 1;
@@ -928,54 +928,55 @@ async function loadTransactions(isAppend = false) {
             }
 
             data.forEach((tx, index) => {
-// ... Keep the rest of your rendering code below this point exactly as it is ...
-            // NOTE: Keep your innerHTML append block for the transaction table exactly as you have it written in your current code.
-            const badgeClass = tx.transaction_type === 'credit' ? 'badge-credit' : 'badge-debit';
-            const displayMode = tx.payment_mode || 'Cash';
-            const currentStatus = tx.status || 'verified';
-            const statusBadgeClass = currentStatus === 'pending' ? 'badge-pending' : (currentStatus === 'rejected' ? 'badge-rejected' : 'badge-verified');
-            const delay = index * 0.05;
-            
-            let actionControls = '';
-            if (userRole === 'admin') {
-                if (currentStatus === 'pending') {
+                const badgeClass = tx.transaction_type === 'credit' ? 'badge-credit' : 'badge-debit';
+                const displayMode = tx.payment_mode || 'Cash';
+                const currentStatus = tx.status || 'verified';
+                const statusBadgeClass = currentStatus === 'pending' ? 'badge-pending' : (currentStatus === 'rejected' ? 'badge-rejected' : 'badge-verified');
+                const delay = index * 0.05;
+                
+                let actionControls = '';
+                if (userRole === 'admin') {
+                    if (currentStatus === 'pending') {
+                        actionControls += `
+                            <button class="btn-icon" style="color: var(--success);" title="Verify" onclick="updateTxStatus('${tx.id}', 'verified')"><i class="fas fa-check-circle"></i></button>
+                            <button class="btn-icon" style="color: var(--danger);" title="Reject" onclick="updateTxStatus('${tx.id}', 'rejected')"><i class="fas fa-times-circle"></i></button>
+                        `;
+                    }
                     actionControls += `
-                        <button class="btn-icon" style="color: var(--success);" title="Verify" onclick="updateTxStatus('${tx.id}', 'verified')"><i class="fas fa-check-circle"></i></button>
-                        <button class="btn-icon" style="color: var(--danger);" title="Reject" onclick="updateTxStatus('${tx.id}', 'rejected')"><i class="fas fa-times-circle"></i></button>
+                        <button class="btn-icon" title="Edit" onclick="openEditTransaction('${tx.id}', '${tx.transaction_type}', '${displayMode}', '${tx.amount}', '${tx.remarks}', '${tx.transaction_date}')"><i class="fas fa-edit"></i></button>
+                        <button class="btn-icon delete" title="Delete" onclick="deleteTransaction('${tx.id}')"><i class="fas fa-trash"></i></button>
                     `;
                 }
-                actionControls += `
-                    <button class="btn-icon" title="Edit" onclick="openEditTransaction('${tx.id}', '${tx.transaction_type}', '${displayMode}', '${tx.amount}', '${tx.remarks}', '${tx.transaction_date}')"><i class="fas fa-edit"></i></button>
-                    <button class="btn-icon delete" title="Delete" onclick="deleteTransaction('${tx.id}')"><i class="fas fa-trash"></i></button>
-                `;
-            }
-            
-            const txStr = encodeURIComponent(JSON.stringify(tx));
+                
+                const txStr = encodeURIComponent(JSON.stringify(tx));
 
-            tbody.innerHTML += `
-                <tr class="row-enter mobile-tile-row" style="animation-delay: ${delay}s" onclick="openMobileDetails(event, 'tx', '${txStr}')">
-                    <td data-label="Select"><input type="checkbox" class="row-select" value="${tx.id}"></td>
-                    <td data-label="Date" style="font-weight: 500;">${new Date(tx.transaction_date).toLocaleDateString('en-GB')}</td>
-                    <td data-label="Student" style="font-weight: 700;">${tx.students.name}</td>
-                    <td data-label="Type, Mode & Status">
-                        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
-                            <span class="badge ${badgeClass}">${tx.transaction_type.toUpperCase()}</span>
-                            <span class="badge ${statusBadgeClass}">${currentStatus.toUpperCase()}</span>
-                            ${tx.sent_to_admin ? '<span class="badge badge-level"><i class="fas fa-arrow-right"></i> Admin</span>' : ''}
-                        </div>
-                        <span class="badge badge-mode" style="display:inline-block; margin-top:4px;"><i class="fas fa-credit-card"></i> ${displayMode}</span>
-                    </td>
-                    <td data-label="Amount" style="font-weight: 800; font-size: 1.1rem; color: var(--text-main);">₹${parseFloat(tx.amount).toFixed(2)}</td>
-                    <td data-label="Remarks" class="mobile-hide" style="color: var(--text-muted); font-size: 0.85rem;">${tx.remarks || '-'}</td>
-                    <td data-label="Actions" class="mobile-actions" style="display: flex; gap: 4px;">
-                        ${actionControls}
-                    </td>
-                </tr>
-            `;
-        });
+                tbody.innerHTML += `
+                    <tr class="row-enter mobile-tile-row" style="animation-delay: ${delay}s" onclick="openMobileDetails(event, 'tx', '${txStr}')">
+                        <td data-label="Select"><input type="checkbox" class="row-select" value="${tx.id}"></td>
+                        <td data-label="Date" style="font-weight: 500;">${new Date(tx.transaction_date).toLocaleDateString('en-GB')}</td>
+                        <td data-label="Student" style="font-weight: 700;">${tx.students.name}</td>
+                        <td data-label="Type, Mode & Status">
+                            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                <span class="badge ${badgeClass}">${tx.transaction_type.toUpperCase()}</span>
+                                <span class="badge ${statusBadgeClass}">${currentStatus.toUpperCase()}</span>
+                                ${tx.sent_to_admin ? '<span class="badge badge-level"><i class="fas fa-arrow-right"></i> Admin</span>' : ''}
+                            </div>
+                            <span class="badge badge-mode" style="display:inline-block; margin-top:4px;"><i class="fas fa-credit-card"></i> ${displayMode}</span>
+                        </td>
+                        <td data-label="Amount" style="font-weight: 800; font-size: 1.1rem; color: var(--text-main);">₹${parseFloat(tx.amount).toFixed(2)}</td>
+                        <td data-label="Remarks" class="mobile-hide" style="color: var(--text-muted); font-size: 0.85rem;">${tx.remarks || '-'}</td>
+                        <td data-label="Actions" class="mobile-actions" style="display: flex; gap: 4px;">
+                            ${actionControls}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+    } catch (err) {
+        showToast("Error loading transactions: " + err.message, "error");
+    } finally {
+        isFetchingTx = false; // Always unlocks, even if the code fails
     }
-    
-    isFetchingTx = false;
 }
 
 function updateTxStatus(txId, newStatus) {
