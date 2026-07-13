@@ -95,8 +95,15 @@ async function loadLevels() {
 function renderLevelDropdowns() {
     const dropdowns = document.querySelectorAll('.dynamic-level-dropdown');
     dropdowns.forEach(select => {
-        const isFilter = select.id === 'filter-level';
-        select.innerHTML = isFilter ? '<option value="">All Levels</option>' : '';
+        // Correctly apply the "All Levels" placeholder to BOTH filter dropdowns
+        if (select.id === 'filter-level' || select.id === 'filter-tx-level') {
+            select.innerHTML = '<option value="">All Levels</option>';
+        } else if (select.id === 'global-tx-level') {
+            select.innerHTML = '<option value="">Select Level</option>';
+        } else {
+            select.innerHTML = ''; 
+        }
+        
         systemLevels.forEach(level => {
             select.innerHTML += `<option value="${level}">${level}</option>`;
         });
@@ -911,8 +918,9 @@ async function loadTransactions(isAppend = false) {
             hasMoreTx = true;
         }
         
-        let query = supabaseClient.from('transactions').select('*, students(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });        
-        
+// DYNAMIC JOIN: Use !inner ONLY when a level is selected so Supabase filters the rows correctly
+let joinString = txLevel ? '*, students!inner(name, level)' : '*, students(name, level)';
+let query = supabaseClient.from('transactions').select(joinString, { count: 'exact' }).order('transaction_date', { ascending: false });        
         if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
         if(startDate) query = query.gte('transaction_date', startDate);
         if(endDate) query = query.lte('transaction_date', endDate);
