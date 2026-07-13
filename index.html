@@ -183,8 +183,13 @@
 </div>
                     <div class="toolbar-group">
                         <button class="btn-primary admin-only-element" style="background: var(--danger); display:none;" onclick="triggerBulkDelete()">
-    <i class="fas fa-trash-alt"></i> Delete Selected
-</button>
+                            <i class="fas fa-trash-alt"></i> Delete Selected
+                        </button>
+                        
+                        <button class="btn-primary admin-only-element" style="display:none; background: #0F172A;" onclick="openMasterReportModal()">
+                            <i class="fas fa-chart-pie"></i> Institution Report
+                        </button>
+
                         <button class="btn-secondary" onclick="exportData('pdf', 'transactions')"><i class="fas fa-file-pdf"></i> PDF</button>
                         <button class="btn-secondary" onclick="exportData('csv', 'transactions')"><i class="fas fa-file-csv"></i> CSV</button>
                     </div>
@@ -540,6 +545,67 @@
         </div>
     </div>
 </div>
+<div id="modal-master-report" class="modal-overlay" style="z-index: 1050;">
+        <div class="modal-content large">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
+                <h3><i class="fas fa-chart-pie text-blue"></i> Institution Master Report</h3>
+                <button class="btn-icon" onclick="closeModal('modal-master-report')"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">Generate a comprehensive, filtered financial statement across the entire institution. Only verified transactions will be included.</p>
+
+            <div class="input-grid-2" style="margin-bottom: 1rem;">
+                <div>
+                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Start Date</label>
+                    <input type="date" id="master-report-start" class="premium-input" style="margin-bottom: 0;">
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">End Date</label>
+                    <input type="date" id="master-report-end" class="premium-input" style="margin-bottom: 0;">
+                </div>
+            </div>
+
+            <div class="input-grid-2" style="margin-bottom: 1.5rem;">
+                <div>
+                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Filter by Staff</label>
+                    <select id="master-report-staff" class="premium-select" style="margin-bottom: 0;">
+                        </select>
+                </div>
+                <div>
+                    <label style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Filter by Level</label>
+                    <select id="master-report-level" class="premium-select" style="margin-bottom: 0;">
+                        </select>
+                </div>
+            </div>
+
+          <div class="modal-actions" style="justify-content: flex-start; border-top: 1px solid var(--border); padding-top: 1.5rem; flex-wrap: wrap;">
+                <button class="btn-primary" style="background: #0F172A;" onclick="generateMasterReport('pdf')"><i class="fas fa-file-pdf"></i> Export PDF</button>
+                <button class="btn-secondary" onclick="generateMasterReport('csv')"><i class="fas fa-file-csv"></i> Export CSV</button>
+                <button class="btn-secondary" onclick="generateMasterReport('preview')" style="color: var(--primary); border-color: var(--primary);"><i class="fas fa-eye"></i> Preview Data</button>
+            </div>
+
+            <div id="master-report-preview-container" style="display: none; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+                    <h4 style="color: var(--text-muted); text-transform:uppercase; font-size: 0.8rem; letter-spacing:1px;">Data Preview</h4>
+                    <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-main);">Net Impact: <span id="preview-net-total" style="font-size: 1.1rem;">₹0.00</span></div>
+                </div>
+                <div class="table-card" style="max-height: 250px; overflow-y: auto; box-shadow: none; border: 1px solid var(--border);">
+                    <table class="responsive-table">
+                        <thead style="position: sticky; top: 0; background: var(--surface-solid); z-index: 10;">
+                            <tr>
+                                <th style="padding: 0.8rem;">Date</th>
+                                <th style="padding: 0.8rem;">Student</th>
+                                <th style="padding: 0.8rem;">Processed By</th>
+                                <th style="padding: 0.8rem; text-align: right;">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody id="master-report-preview-body">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(registrations) {

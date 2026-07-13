@@ -1882,3 +1882,255 @@ window.addEventListener('scroll', () => {
     }
 }, { passive: true });
 
+// --- INSTITUTION MASTER REPORT LOGIC ---
+
+async function openMasterReportModal() {
+    if (userRole !== 'admin') return showToast("Unauthorized access.", "error");
+
+    document.getElementById('master-report-start').value = '';
+    document.getElementById('master-report-end').value = '';
+    
+    // Hide preview container when reopening
+    document.getElementById('master-report-preview-container').style.display = 'none';
+
+    // Populate Staff Dropdown
+    const staffSelect = document.getElementById('master-report-staff');
+    staffSelect.innerHTML = '<option value="">All Staff / Entire Institution</option>';
+    const { data: staff } = await supabaseClient.from('profiles').select('id, name');
+    if (staff) {
+        staff.forEach(s => staffSelect.innerHTML += `<option value="${s.id}">${s.name || 'Unknown'}</option>`);
+    }
+
+    // Populate Levels Dropdown
+    const levelSelect = document.getElementById('master-report-level');
+    levelSelect.innerHTML = '<option value="">All Levels</option>';
+    systemLevels.forEach(l => levelSelect.innerHTML += `<option value="${l}">${l}</option>`);
+
+    openModal('modal-master-report');
+}
+
+async function generateMasterReport(format) {
+    if (userRole !== 'admin') return;
+
+    const startDate = document.getElementById('master-report-start').value;
+    const endDate = document.getElementById('master-report-end').value;
+    const staffId = document.getElementById('master-report-staff').value;
+    const level = document.getElementById('master-report-level').value;
+
+    showLoader(true);
+
+    // 1. Build Query (Only verified transactions)
+    let joinString = level ? '*, students!inner(name, level)' : '*, students(name, level)';
+    let query = supabaseClient.from('transactions').select(joinString).eq('status', 'verified').order('transaction_date', { ascending: false });
+
+    if (startDate) query = query.gte('transaction_date', startDate);
+    if (endDate) query = query.lte('transaction_date', endDate);
+    if (staffId) query = query.eq('created_by', staffId);
+    if (level) query = query.eq('students.level', level);
+
+    const { data, error } = await query;
+
+    if (error) {
+        showLoader(false);
+        return showToast("Error querying data: " + error.message, "error");
+    }
+
+    let finalData = data || [];
+
+    // 2. Manually Map Profile Names (Bypass 400 Error)
+    let profileMap = {};
+    if (finalData.length > 0) {
+        const profileIds = [...new Set(finalData.map(t => t.created_by).filter(id => id))];
+        if (profileIds.length > 0) {
+            const { data: profData } = await supabaseClient.from('profiles').select('id, name').in('id', profileIds);
+            if (profData) profData.forEach(p => profileMap[p.id] = p.name || 'Unknown User');
+        }
+    }
+
+    showLoader(false);
+
+    if (finalData.length === 0) return showToast("No transactions found for these filters.", "warning");
+
+    // 3. Process Data & Calculate Totals
+    let totalCredit = 0;
+    let totalDebit = 0;
+
+    let csvData = [];
+    let pdfBody = [];
+
+    // Setup headers
+    csvData.push(["Date", "Student", "Level", "Processed By", "Mode", "Type", "Amount", "Remarks"]);
+    const pdfHeaders = [['DATE', 'STUDENT', 'LEVEL', 'PROCESSED BY', 'MODE', 'IMPACT (Rs)']];
+
+    finalData.forEach(tx => {
+        const isCredit = tx.transaction_type === 'credit';
+        const amt = parseFloat(tx.amount);
+        const stdName = tx.students?.name || 'Unknown';
+        const stdLevel = tx.students?.level || 'General';
+        const staffName = profileMap[tx.created_by] || 'Admin';
+        const dateStr = new Date(tx.transaction_date).toLocaleDateString('en-GB');
+        const mode = tx.payment_mode || 'Cash';
+        const remarks = (tx.remarks || '-').replace(/\n/g, ' ');
+
+        if (isCredit) totalCredit += amt; else totalDebit += amt;
+
+        // Push to CSV
+        csvData.push([dateStr, stdName, stdLevel, staffName, mode, tx.transaction_type.toUpperCase(), amt.toFixed(2), remarks]);
+        
+        // Push to PDF
+        pdfBody.push([
+            dateStr, 
+            stdName, 
+            stdLevel, 
+            staffName, 
+            mode, 
+            isCredit ? `+ ${amt.toFixed(2)}` : `- ${amt.toFixed(2)}`
+        ]);
+    });
+
+    const netTotal = totalCredit - totalDebit;
+    const filename = `Institution_Report_${new Date().toISOString().split('T')[0]}`;
+
+    // 4. Export Execution
+    
+    if (format === 'preview') {
+        const previewContainer = document.getElementById('master-report-preview-container');
+        const previewBody = document.getElementById('master-report-preview-body');
+        const netTotalEl = document.getElementById('preview-net-total');
+        
+        previewBody.innerHTML = '';
+        
+        finalData.forEach(tx => {
+            const isCredit = tx.transaction_type === 'credit';
+            const amt = parseFloat(tx.amount);
+            const stdName = tx.students?.name || 'Unknown';
+            const staffName = profileMap[tx.created_by] || 'Admin';
+            const dateStr = new Date(tx.transaction_date).toLocaleDateString('en-GB');
+            const color = isCredit ? 'var(--success)' : 'var(--danger)';
+            const sign = isCredit ? '+' : '-';
+            
+            previewBody.innerHTML += `
+                <tr>
+                    <td style="padding: 0.8rem; font-size: 0.85rem;">${dateStr}</td>
+                    <td style="padding: 0.8rem; font-weight: 700; font-size: 0.85rem;">${stdName}</td>
+                    <td style="padding: 0.8rem; font-size: 0.8rem; color: var(--text-muted);">${staffName}</td>
+                    <td style="padding: 0.8rem; font-weight: 800; color: ${color}; text-align: right;">${sign}₹${amt.toFixed(2)}</td>
+                </tr>
+            `;
+        });
+        
+        netTotalEl.innerText = `₹${netTotal.toFixed(2)}`;
+        netTotalEl.style.color = netTotal < 0 ? 'var(--danger)' : 'var(--success)';
+        previewContainer.style.display = 'block';
+        
+        showToast("Preview generated. Scroll down to view.");
+        // We DO NOT close the modal here, so the user can see the preview!
+    }
+    else if (format === 'csv') {
+        let csv = Papa.unparse(csvData);
+        let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        let link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `${filename}.csv`;
+        link.click();
+        showToast("Master CSV Exported Successfully!");
+        closeModal('modal-master-report');
+    } 
+    else if (format === 'pdf') {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('landscape');
+        const pageWidth = doc.internal.pageSize.width;
+        const pageHeight = doc.internal.pageSize.height;
+        
+        // --- PREMIUM HEADER GRAPHICS ---
+        doc.setFillColor(15, 23, 42); // Slate 900
+        doc.rect(0, 0, pageWidth, 45, 'F');
+        doc.setFillColor(37, 99, 235); // Blue Accent
+        doc.rect(0, 45, pageWidth, 3, 'F');
+
+        // Abstract Geometric Logo
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(1.2);
+        doc.rect(14, 14, 10, 10, 'S'); 
+        doc.setFillColor(255, 255, 255);
+        doc.rect(18, 18, 10, 10, 'F'); 
+
+        // Title
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.setFont("helvetica", "bold");
+        doc.text("LEDGER", 34, 25);
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text("INSTITUTIONAL FINANCE", 34, 32);
+
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("MASTER FINANCIAL REPORT", pageWidth - 14, 25, { align: 'right' });
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Generated: ${new Date().toLocaleString('en-GB')}`, pageWidth - 14, 32, { align: 'right' });
+
+        // --- REPORT METADATA & TOTALS ---
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(10);
+        
+        // Left Column Meta
+        doc.setFont("helvetica", "bold");
+        doc.text("PARAMETERS:", 14, 58);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Date Range: ${startDate ? new Date(startDate).toLocaleDateString() : 'All Time'} to ${endDate ? new Date(endDate).toLocaleDateString() : 'Present'}`, 14, 65);
+        
+        const staffSelectEl = document.getElementById('master-report-staff');
+        const staffNameDisplay = staffId ? staffSelectEl.options[staffSelectEl.selectedIndex].text : 'All Staff';
+        doc.text(`Filtered Staff: ${staffNameDisplay}`, 14, 71);
+        doc.text(`Filtered Level: ${level || 'All Levels'}`, 14, 77);
+
+        // Right Column Totals
+        doc.setFont("helvetica", "bold");
+        doc.text("REPORT AGGREGATES:", pageWidth - 70, 58);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Total Deposits (+): Rs. ${totalCredit.toFixed(2)}`, pageWidth - 70, 65);
+        doc.text(`Total Deductions (-): Rs. ${totalDebit.toFixed(2)}`, pageWidth - 70, 71);
+        
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(netTotal < 0 ? 220 : 15, netTotal < 0 ? 38 : 23, netTotal < 0 ? 38 : 42);
+        doc.text(`NET VOLUME: Rs. ${netTotal.toFixed(2)}`, pageWidth - 70, 78);
+
+        // --- PREMIUM TABLE ---
+        doc.autoTable({
+            startY: 85,
+            head: pdfHeaders,
+            body: pdfBody,
+            theme: 'plain',
+            headStyles: { 
+                fillColor: [248, 250, 252], 
+                textColor: [15, 23, 42], 
+                fontStyle: 'bold',
+                lineWidth: { bottom: 0.5 },
+                lineColor: [203, 213, 225]
+            },
+            bodyStyles: { textColor: [51, 65, 85], lineWidth: { bottom: 0.1 }, lineColor: [226, 232, 240] },
+            alternateRowStyles: { fillColor: [252, 253, 255] },
+            styles: { font: 'helvetica', fontSize: 9, cellPadding: 6 },
+            columnStyles: { 5: { halign: 'right', fontStyle: 'bold' } } 
+        });
+
+        // --- FOOTERS ---
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFillColor(248, 250, 252);
+            doc.rect(0, pageHeight - 15, pageWidth, 15, 'F');
+            doc.setTextColor(148, 163, 184);
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.text("SECURE MASTER DATA EXPORT", 14, pageHeight - 6);
+            doc.text(`PAGE ${i} OF ${pageCount}`, pageWidth - 14, pageHeight - 6, { align: 'right' });
+        }
+
+        doc.save(`${filename}.pdf`);
+        showToast("Premium Master Report Exported!");
+        closeModal('modal-master-report');
+    }
+}
