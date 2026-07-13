@@ -393,23 +393,18 @@ function showSection(sectionId) {
     document.getElementById('section-title').innerText = titles[sectionId];
     document.getElementById('dashboard-stats').style.display = (sectionId === 'students') ? 'grid' : 'none';
 
-   // Handle Floating Action Button (FAB) Logic
-const fab = document.getElementById('mobile-fab');
-if (fab) {
-    if (userRole === 'admin') {
-        if (sectionId === 'students') { fab.style.display = 'flex'; fab.onclick = () => openModal('modal-add-student'); } 
-        else if (sectionId === 'users') { fab.style.display = 'flex'; fab.onclick = () => openModal('modal-add-staff'); } 
-        else { fab.style.display = 'none'; }
-    } else {
-        // Staff Mobile Logic: Show on transactions page to add globally
-        if (sectionId === 'transactions') {
-            fab.style.display = 'flex';
-            fab.onclick = () => openGlobalAddTransaction();
+    // Handle Floating Action Button (FAB) Logic
+    const fab = document.getElementById('mobile-fab');
+    if (fab) {
+        if (userRole === 'admin') {
+            if (sectionId === 'students') { fab.style.display = 'flex'; fab.onclick = () => openModal('modal-add-student'); } 
+            else if (sectionId === 'users') { fab.style.display = 'flex'; fab.onclick = () => openModal('modal-add-staff'); } 
+            else { fab.style.display = 'none'; }
         } else {
+            // Staff Mobile Logic: Disable FAB completely. They must click a student in the Directory to add a transaction.
             fab.style.display = 'none';
         }
     }
-}
 
     if(sectionId === 'students') { studentPage = 1; loadStudents(); }
     if(sectionId === 'transactions') { txPage = 1; loadTransactions(); }
@@ -840,7 +835,7 @@ function deleteTransaction(txId) {
     );
 }
 
-function openAddTransaction(studentId) {
+async function openAddTransaction(studentId) {
     document.getElementById('tx-modal-title').innerText = "Process Transaction";
     document.getElementById('tx-id').value = ""; 
     document.getElementById('tx-student-id').value = studentId;
@@ -849,7 +844,7 @@ function openAddTransaction(studentId) {
     document.getElementById('tx-pay-mode').value = "Cash";
     document.getElementById('tx-sent-to-admin').checked = false;
     
-    // Toggle checkbox based on type
+    // Toggle admin handover checkbox based on type
     const toggleHandover = () => {
         const isCredit = document.getElementById('tx-type').value === 'credit';
         document.getElementById('admin-handover-group').style.display = (userRole === 'staff' && isCredit) ? 'block' : 'none';
@@ -857,10 +852,22 @@ function openAddTransaction(studentId) {
     document.getElementById('tx-type').onchange = toggleHandover;
     toggleHandover();
     
+    // FIX: Show the selectors and pre-fill the student data
+    document.getElementById('global-tx-selectors').style.display = 'block';
+    document.getElementById('global-tx-student').disabled = true;
+    document.getElementById('global-tx-student').innerHTML = '<option value="">Loading...</option>';
+    
+    // Auto-fetch the selected student's level to populate the dropdowns
+    const { data: stdData } = await supabaseClient.from('students').select('level').eq('id', studentId).single();
+    
+    if (stdData) {
+        document.getElementById('global-tx-level').value = stdData.level;
+        await loadStudentsForDropdown(stdData.level);
+        document.getElementById('global-tx-student').value = studentId;
+    }
+
     openModal('modal-transaction');
 }
-
-let isSavingTx = false; // Master Lock
 
 async function saveTransaction() {
     if (isSavingTx) return; 
@@ -978,9 +985,9 @@ async function loadTransactions(isAppend = false) {
             hasMoreTx = true;
         }
         
-// DYNAMIC JOIN: Use !inner ONLY when a level is selected so Supabase filters the rows correctly
-let joinString = txLevel ? '*, students!inner(name, level)' : '*, students(name, level)';
-let query = supabaseClient.from('transactions').select(joinString, { count: 'exact' }).order('transaction_date', { ascending: false });        
+        // DYNAMIC JOIN: Use !inner ONLY when a level is selected so Supabase filters the rows correctly
+        let joinString = txLevel ? '*, students!inner(name, level)' : '*, students(name, level)';
+        let query = supabaseClient.from('transactions').select(joinString, { count: 'exact' }).order('transaction_date', { ascending: false });        
         if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
         if(startDate) query = query.gte('transaction_date', startDate);
         if(endDate) query = query.lte('transaction_date', endDate);
@@ -1019,6 +1026,19 @@ let query = supabaseClient.from('transactions').select(joinString, { count: 'exa
                 }));
             }
         }
+
+        // --- NEW: Fetch Staff/Admin Profiles for "Processed By" column ---
+        let profileMap = {};
+        if (finalData.length > 0) {
+            // Extract unique user IDs from the transactions
+            const profileIds = [...new Set(finalData.map(t => t.created_by).filter(id => id))];
+            if (profileIds.length > 0) {
+                const { data: profData } = await supabaseClient.from('profiles').select('id, name').in('id', profileIds);
+                if (profData) {
+                    profData.forEach(p => profileMap[p.id] = p.name || 'Unknown User');
+                }
+            }
+        }
         
         if (!isAppend) showLoader(false);
 
@@ -1034,7 +1054,8 @@ let query = supabaseClient.from('transactions').select(joinString, { count: 'exa
             document.getElementById('tx-page-info').innerText = `Page ${txPage} of ${totalPages}`;
 
             if(finalData.length === 0 && !isAppend) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-muted);">No transactions found.</td></tr>`;
+                // Expanded colspan to 8 to account for the new column
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 2rem; color: var(--text-muted);">No transactions found.</td></tr>`;
                 isFetchingTx = false;
                 return;
             }
@@ -1047,6 +1068,10 @@ let query = supabaseClient.from('transactions').select(joinString, { count: 'exa
                 const delay = index * 0.05;
                 
                 const studentName = tx.students?.name || 'Unknown Student';
+                
+                // NEW: Resolve the name of the person who processed the transaction
+                const processedBy = tx.profiles?.name || profileMap[tx.created_by] || 'Admin';
+
                 const safeRemarks = (tx.remarks || '').replace(/'/g, "\\'").replace(/\n/g, '\\n');
                 
                 let actionControls = '';
@@ -1070,6 +1095,7 @@ let query = supabaseClient.from('transactions').select(joinString, { count: 'exa
                         <td data-label="Select"><input type="checkbox" class="row-select" value="${tx.id}"></td>
                         <td data-label="Date" style="font-weight: 500;">${new Date(tx.transaction_date).toLocaleDateString('en-GB')}</td>
                         <td data-label="Student" style="font-weight: 700;">${studentName}</td>
+                        <td data-label="Processed By" style="color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">${processedBy}</td>
                         <td data-label="Type, Mode & Status">
                             <div style="display: flex; gap: 4px; flex-wrap: wrap;">
                                 <span class="badge ${badgeClass}">${tx.transaction_type.toUpperCase()}</span>
@@ -1080,8 +1106,10 @@ let query = supabaseClient.from('transactions').select(joinString, { count: 'exa
                         </td>
                         <td data-label="Amount" style="font-weight: 800; font-size: 1.1rem; color: var(--text-main);">₹${parseFloat(tx.amount).toFixed(2)}</td>
                         <td data-label="Remarks" class="mobile-hide" style="color: var(--text-muted); font-size: 0.85rem;">${tx.remarks || '-'}</td>
-                        <td data-label="Actions" class="mobile-actions" style="display: flex; gap: 4px;">
-                            ${actionControls}
+                      <td data-label="Actions" class="mobile-actions" style="white-space: nowrap; width: 100px; vertical-align: middle;">
+                            <div style="display: flex; gap: 8px; justify-content: flex-start; align-items: center;">
+                                ${actionControls}
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -1142,11 +1170,23 @@ async function loadUsers() {
 
             let staffBalance = 0;
             
-            if (allTx) {
-                allTx.filter(t => t.created_by === user.id && t.status === 'verified').forEach(t => {
+          if (allTx) {
+                allTx.forEach(t => {
+                    if (t.status !== 'verified') return;
                     const amt = parseFloat(t.amount);
-                    if (t.transaction_type === 'credit' && !t.sent_to_admin) staffBalance += amt;
-                    if (t.transaction_type === 'debit') staffBalance -= amt;
+                    
+                    // If this transaction was processed by THIS specific user
+                    if (t.created_by === user.id) {
+                        if (t.transaction_type === 'credit' && !t.sent_to_admin) staffBalance += amt;
+                        if (t.transaction_type === 'debit') staffBalance -= amt;
+                    }
+                    
+                    // NEW: If THIS user is an Admin, they receive all cash handed over by staff
+                    if (user.role === 'admin') {
+                        if (t.transaction_type === 'credit' && t.sent_to_admin) {
+                            staffBalance += amt;
+                        }
+                    }
                 });
             }
             
@@ -1224,8 +1264,20 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
     
     showLoader(true);
     
+    // 1. Check if the target user is an admin
+    const { data: profileData } = await supabaseClient.from('profiles').select('role').eq('id', targetId).single();
+    const isTargetAdmin = profileData ? profileData.role === 'admin' : false;
+
+    // 2. Adjust the query: Admins see their own txs PLUS any handovers from staff
+    let query = supabaseClient.from('transactions').select('*, students(name), profiles(name)').order('transaction_date', { ascending: false });
+    if (isTargetAdmin) {
+        query = query.or(`created_by.eq.${targetId},sent_to_admin.eq.true`);
+    } else {
+        query = query.eq('created_by', targetId);
+    }
+    
     const [txRes, setRes] = await Promise.all([
-        supabaseClient.from('transactions').select('*, students(name)').eq('created_by', targetId).order('transaction_date', { ascending: false }),
+        query,
         supabaseClient.from('staff_settlements').select('*').eq('staff_id', targetId).order('created_at', { ascending: false })
     ]);
     
@@ -1237,13 +1289,24 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
     currentStaffLedgerData = [];
     let runningBalance = 0;
 
+    // 3. Process the timeline
     txRes.data.forEach(tx => {
         if(tx.status !== 'verified') return;
         const amt = parseFloat(tx.amount);
         let impact = 0;
-        
-        if (tx.transaction_type === 'credit' && !tx.sent_to_admin) impact = amt;
-        if (tx.transaction_type === 'debit') impact = -amt;
+        let title = `Student: ${tx.students?.name || 'Unknown'}`;
+        let desc = `${tx.transaction_type.toUpperCase()} • ${tx.payment_mode}`;
+
+        if (tx.created_by === targetId) {
+            // Standard transaction processed by this user
+            if (tx.transaction_type === 'credit' && !tx.sent_to_admin) impact = amt;
+            if (tx.transaction_type === 'debit') impact = -amt;
+        } else if (isTargetAdmin && tx.sent_to_admin && tx.transaction_type === 'credit') {
+            // Cash Handover received by this Admin
+            impact = amt;
+            title = `Handover from ${tx.profiles?.name || 'Staff'}`;
+            desc = `Student: ${tx.students?.name || 'Unknown'}`;
+        }
         
         if (impact !== 0) {
             runningBalance += impact;
@@ -1251,8 +1314,8 @@ async function openStaffLedger(targetUserId, targetUserName = '') {
                 rawTx: tx, // Store raw data for editing
                 isSettlement: false,
                 date: new Date(tx.transaction_date),
-                title: `Student: ${tx.students?.name || 'Unknown'}`,
-                desc: `${tx.transaction_type.toUpperCase()} • ${tx.payment_mode}`,
+                title: title,
+                desc: desc,
                 impact: impact
             });
         }
