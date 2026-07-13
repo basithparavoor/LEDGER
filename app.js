@@ -512,7 +512,7 @@ async function loadStudents(isAppend = false) {
         
         if (data) {
             if (data.length < PAGE_LIMIT_STUDENTS) {
-                hasMoreStudents = false; // Stop auto-loading if we run out of data
+                hasMoreStudents = false; 
             }
 
             if(statsData && !isAppend) {
@@ -530,11 +530,14 @@ async function loadStudents(isAppend = false) {
                 return;
             }
 
+            // --- PERFORMANCE UPDATE: Buffer string instead of direct DOM injection ---
+            let htmlBuffer = ''; 
+
             data.forEach((student, index) => {
                 const currentBalance = parseFloat(student.balance || 0);
                 const balanceColor = currentBalance < 0 ? 'var(--danger)' : 'var(--text-main)';
                 const stdLevel = student.level || 'General';
-                const delay = index * 0.05;
+                const delay = index * 0.03; // Faster animation
                 
                 let actionControls = '';
                 if (userRole === 'admin') {
@@ -549,7 +552,7 @@ async function loadStudents(isAppend = false) {
 
                 const studentStr = encodeURIComponent(JSON.stringify(student));
 
-                tbody.innerHTML += `
+                htmlBuffer += `
                     <tr class="row-enter mobile-tile-row" style="animation-delay: ${delay}s" onclick="openMobileDetails(event, 'student', '${studentStr}')">
                         <td data-label="Select"><input type="checkbox" class="row-select" value="${student.id}"></td>
                         <td data-label="Name & ID">
@@ -570,11 +573,15 @@ async function loadStudents(isAppend = false) {
                     </tr>
                 `;
             });
+            
+            // Inject all compiled rows into the DOM instantly
+            if (isAppend) tbody.insertAdjacentHTML('beforeend', htmlBuffer);
+            else tbody.innerHTML = htmlBuffer;
         }
     } catch (err) {
         showToast("Error loading students: " + err.message, "error");
     } finally {
-        isFetchingStudents = false; // Always unlocks
+        isFetchingStudents = false; 
     }
 }
 
@@ -1068,7 +1075,6 @@ async function loadTransactions(isAppend = false) {
             hasMoreTx = true;
         }
         
-        // DYNAMIC JOIN: Use !inner ONLY when a level is selected so Supabase filters the rows correctly
         let joinString = txLevel ? '*, students!inner(name, level)' : '*, students(name, level)';
         let query = supabaseClient.from('transactions').select(joinString, { count: 'exact' }).order('transaction_date', { ascending: false });        
         if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
@@ -1095,7 +1101,6 @@ async function loadTransactions(isAppend = false) {
             throw new Error(error.message); 
         }
 
-        // --- FAILSAFE: If Supabase Join is broken, manually fetch and attach students ---
         let finalData = data || [];
         if (finalData.length > 0 && finalData[0].students === null) {
             const studentIds = [...new Set(finalData.map(t => t.student_id).filter(id => id))];
@@ -1110,10 +1115,8 @@ async function loadTransactions(isAppend = false) {
             }
         }
 
-        // --- NEW: Fetch Staff/Admin Profiles for "Processed By" column ---
         let profileMap = {};
         if (finalData.length > 0) {
-            // Extract unique user IDs from the transactions
             const profileIds = [...new Set(finalData.map(t => t.created_by).filter(id => id))];
             if (profileIds.length > 0) {
                 const { data: profData } = await supabaseClient.from('profiles').select('id, name').in('id', profileIds);
@@ -1137,24 +1140,23 @@ async function loadTransactions(isAppend = false) {
             document.getElementById('tx-page-info').innerText = `Page ${txPage} of ${totalPages}`;
 
             if(finalData.length === 0 && !isAppend) {
-                // Expanded colspan to 8 to account for the new column
                 tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 2rem; color: var(--text-muted);">No transactions found.</td></tr>`;
                 isFetchingTx = false;
                 return;
             }
+
+            // --- PERFORMANCE UPDATE: Buffer string instead of direct DOM injection ---
+            let htmlBuffer = '';
 
             finalData.forEach((tx, index) => {
                 const badgeClass = tx.transaction_type === 'credit' ? 'badge-credit' : 'badge-debit';
                 const displayMode = tx.payment_mode || 'Cash';
                 const currentStatus = tx.status || 'verified';
                 const statusBadgeClass = currentStatus === 'pending' ? 'badge-pending' : (currentStatus === 'rejected' ? 'badge-rejected' : 'badge-verified');
-                const delay = index * 0.05;
+                const delay = index * 0.03; // Faster animation
                 
                 const studentName = tx.students?.name || 'Unknown Student';
-                
-                // NEW: Resolve the name of the person who processed the transaction
                 const processedBy = tx.profiles?.name || profileMap[tx.created_by] || 'Admin';
-
                 const safeRemarks = (tx.remarks || '').replace(/'/g, "\\'").replace(/\n/g, '\\n');
                 
                 let actionControls = '';
@@ -1173,7 +1175,7 @@ async function loadTransactions(isAppend = false) {
                 
                 const txStr = encodeURIComponent(JSON.stringify(tx));
 
-                tbody.innerHTML += `
+                htmlBuffer += `
                     <tr class="row-enter mobile-tile-row" style="animation-delay: ${delay}s" onclick="openMobileDetails(event, 'tx', '${txStr}')">
                         <td data-label="Select"><input type="checkbox" class="row-select" value="${tx.id}"></td>
                         <td data-label="Date" style="font-weight: 500;">${new Date(tx.transaction_date).toLocaleDateString('en-GB')}</td>
@@ -1189,7 +1191,7 @@ async function loadTransactions(isAppend = false) {
                         </td>
                         <td data-label="Amount" style="font-weight: 800; font-size: 1.1rem; color: var(--text-main);">₹${parseFloat(tx.amount).toFixed(2)}</td>
                         <td data-label="Remarks" class="mobile-hide" style="color: var(--text-muted); font-size: 0.85rem;">${tx.remarks || '-'}</td>
-                      <td data-label="Actions" class="mobile-actions" style="white-space: nowrap; width: 100px; vertical-align: middle;">
+                        <td data-label="Actions" class="mobile-actions" style="white-space: nowrap; width: 100px; vertical-align: middle;">
                             <div style="display: flex; gap: 8px; justify-content: flex-start; align-items: center;">
                                 ${actionControls}
                             </div>
@@ -1197,6 +1199,10 @@ async function loadTransactions(isAppend = false) {
                     </tr>
                 `;
             });
+            
+            // Inject all compiled rows into the DOM instantly
+            if (isAppend) tbody.insertAdjacentHTML('beforeend', htmlBuffer);
+            else tbody.innerHTML = htmlBuffer;
         }
     } catch (err) {
         showToast("Error loading transactions: " + err.message, "error");

@@ -51,9 +51,10 @@ body { background-color: var(--background); color: var(--text-main); overflow-x:
 
 /* Table Row Entry Animation */
 .row-enter {
-    animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; /* Sped up from 0.4s to 0.3s */
     opacity: 0;
     transform: translateY(10px);
+    will-change: transform, opacity; /* Forces GPU hardware acceleration */
 }
 @keyframes slideUpFade { to { opacity: 1; transform: translateY(0); } }
 
