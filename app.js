@@ -662,13 +662,14 @@ async function viewStudentReport(studentId, studentName, currentBalance, startDa
     // Add this right under filteredData.push(tx); loop or after the loop finishes:
     currentStudentReportData = filteredData;
     
-    const closingBalance = openingBalance + periodCredit - periodDebit;
-
+  // Add this right under filteredData.push(tx); loop or after the loop finishes:
+    currentStudentReportData = filteredData;
+    
     const closingBalance = openingBalance + periodCredit - periodDebit;
 
     document.getElementById('report-total-credit').innerText = `₹${periodCredit.toFixed(2)}`;
     document.getElementById('report-total-debit').innerText = `₹${periodDebit.toFixed(2)}`;
-    
+
     const balEl = document.getElementById('report-student-balance');
     balEl.innerHTML = startDate ? `
         <span style="font-size:0.7rem; color:var(--text-muted); display:block;">Opening: ₹${openingBalance.toFixed(2)}</span>
@@ -1419,8 +1420,7 @@ function exportData(type, section) {
         XLSX.writeFile(wb, `${filename}.xlsx`);
         showToast("Excel Exported Successfully!");
     } 
-    // ... keep your existing 'csv' and 'pdf' logic below here
-    if (type === 'csv') {
+    else if (type === 'csv') {
         const table = document.querySelector(tableId);
         let data = [];
         let rows = table.querySelectorAll("tr");
@@ -1439,8 +1439,8 @@ function exportData(type, section) {
         link.download = `${filename}.csv`;
         link.click();
         showToast("CSV Exported Successfully!");
-        
-  else if (type === 'pdf') {
+    } // <--- THIS WAS THE MISSING BRACKET
+    else if (type === 'pdf') {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('landscape');
         
@@ -1461,7 +1461,6 @@ function exportData(type, section) {
         // Manually parse the table to extract clean data
         let tableHeaders = [];
         let tableBody = [];
-        const table = document.querySelector(tableId);
 
         // Extract Headers (Skipping Checkbox and Actions columns)
         const headerCells = table.querySelectorAll("thead th");
@@ -1476,7 +1475,6 @@ function exportData(type, section) {
             const cells = row.querySelectorAll("td");
             if (cells.length > 2) { 
                 for (let i = 1; i < cells.length - 1; i++) {
-                    // Replace newlines with a dash for clean PDF reading
                     let cellText = cells[i].innerText.replace(/\n/g, ' • ').trim();
                     rowData.push(cellText);
                 }
@@ -1592,13 +1590,13 @@ async function executeBulkDelete() {
         document.querySelectorAll('thead input[type="checkbox"]').forEach(cb => cb.checked = false);
         
         // Refresh the correct data table
-     // Refresh the correct data table
         if (pendingBulkDeleteTable === 'students') loadStudents();
-    if (pendingBulkDeleteTable === 'students') loadStudents();
         else loadTransactions();
     }
+} // <-- This safely closes the executeBulkDelete function
 
-    // --- MOBILE INFINITE SCROLL (AUTO-LOAD) ---
+
+// --- MOBILE INFINITE SCROLL (AUTO-LOAD) ---
 window.addEventListener('scroll', () => {
     // Only run auto-load logic on mobile views (screens 900px or smaller)
     if (window.innerWidth > 900) return;
@@ -1621,4 +1619,26 @@ window.addEventListener('scroll', () => {
     }
 }, { passive: true });
 
-} // <-- This should be the final line of app.js
+// --- MOBILE INFINITE SCROLL (AUTO-LOAD) ---
+window.addEventListener('scroll', () => {
+    // Only run auto-load logic on mobile views (screens 900px or smaller)
+    if (window.innerWidth > 900) return;
+
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = window.innerHeight;
+    
+    // If the user scrolls within 200px of the bottom of the page
+    if (scrollTop + clientHeight >= scrollHeight - 200) {
+        const activeSection = document.querySelector('.data-section.active')?.id;
+        
+        if (activeSection === 'students-section' && !isFetchingStudents && hasMoreStudents) {
+            studentPage++;
+            loadStudents(true); // Loads next batch seamlessly
+        } else if (activeSection === 'transactions-section' && !isFetchingTx && hasMoreTx) {
+            txPage++;
+            loadTransactions(true); // Loads next batch seamlessly
+        }
+    }
+}, { passive: true });
+
