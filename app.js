@@ -948,12 +948,16 @@ async function openAddTransaction(studentId) {
     openModal('modal-transaction');
 }
 
+// Add this line back right above the function!
+let isSavingTx = false; 
+
 async function saveTransaction() {
     if (isSavingTx) return; 
     isSavingTx = true;
 
     const txId = document.getElementById('tx-id').value;
     const studentId = document.getElementById('tx-student-id').value;
+    // ... the rest of your code
     const type = document.getElementById('tx-type').value;
     const mode = document.getElementById('tx-pay-mode').value;
     const amount = parseFloat(document.getElementById('tx-amount').value);
