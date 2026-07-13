@@ -121,8 +121,7 @@
                         </div>
                     </div>
                     <div class="toolbar-group">
-                        <button class="btn-primary admin-only-element" style="background: var(--danger); display:none;" onclick="triggerBulkDelete()">
-    <i class="fas fa-trash-alt"></i> Delete Selected
+<button class="btn-secondary admin-only-element" style="display:none; color: var(--danger); border-color: var(--danger);" onclick="triggerBulkDelete()">    <i class="fas fa-trash-alt"></i> Delete Selected
 </button>
                         <button class="btn-secondary" onclick="exportData('pdf', 'students')"><i class="fas fa-file-pdf"></i> PDF</button>
                         <button class="btn-secondary" onclick="exportData('csv', 'students')"><i class="fas fa-file-csv"></i> CSV</button>
@@ -182,8 +181,7 @@
     </select>
 </div>
                     <div class="toolbar-group">
-                        <button class="btn-primary admin-only-element" style="background: var(--danger); display:none;" onclick="triggerBulkDelete()">
-                            <i class="fas fa-trash-alt"></i> Delete Selected
+<button class="btn-secondary admin-only-element" style="display:none; color: var(--danger); border-color: var(--danger);" onclick="triggerBulkDelete()">                            <i class="fas fa-trash-alt"></i> Delete Selected
                         </button>
                         
                        <button class="btn-secondary admin-only-element" style="display:none; background: #0F172A; color: white; border-color: #0F172A;" onclick="openMasterReportModal()">
@@ -235,7 +233,7 @@
                     </button>
                 </div>
                 <div class="table-card premium-glass">
-                    <table class="responsive-table">
+                    <table class="responsive-table" id="users-table">
                         <thead>
                             <tr>
                                 <th>Staff Name</th>
@@ -589,8 +587,8 @@
                     <h4 style="color: var(--text-muted); text-transform:uppercase; font-size: 0.8rem; letter-spacing:1px;">Data Preview</h4>
                     <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-main);">Net Impact: <span id="preview-net-total" style="font-size: 1.1rem;">₹0.00</span></div>
                 </div>
-                <div class="table-card" style="max-height: 250px; overflow-y: auto; box-shadow: none; border: 1px solid var(--border);">
-                    <table class="responsive-table">
+               <div class="table-card" style="max-height: 250px; overflow-y: auto; overflow-x: auto; box-shadow: none; border: 1px solid var(--border);">
+                    <table style="width: 100%; min-width: 500px; border-collapse: collapse; text-align: left;">
                         <thead style="position: sticky; top: 0; background: var(--surface-solid); z-index: 10;">
                             <tr>
                                 <th style="padding: 0.8rem;">Date</th>
