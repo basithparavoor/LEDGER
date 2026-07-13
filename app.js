@@ -278,9 +278,11 @@ function openMobileDetails(event, type, dataStr) {
                 ${actionControls}
             </div>
         `;
-    } else if (type === 'tx') {
+  } else if (type === 'tx') {
         
-        // Build Admin-specific transaction controls
+        // CRITICAL FIX: Safe parsing so mobile doesn't crash
+        const safeStudentName = data.students?.name || 'Unknown Student';
+
         let txControls = '';
         if (userRole === 'admin') {
             if (data.status === 'pending') {
@@ -298,7 +300,7 @@ function openMobileDetails(event, type, dataStr) {
         container.innerHTML = `
             <div style="padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Student</p>
-                <h4 style="font-size:1.2rem; color:var(--text-main);">${data.students.name}</h4>
+                <h4 style="font-size:1.2rem; color:var(--text-main);">${safeStudentName}</h4>
                 <p style="font-size:0.9rem; color:var(--text-muted);">Date: ${new Date(data.transaction_date).toLocaleDateString()}</p>
             </div>
             <div style="padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
@@ -313,7 +315,6 @@ function openMobileDetails(event, type, dataStr) {
                 <p style="color:var(--text-muted); font-size:0.8rem; text-transform:uppercase;">Remarks</p>
                 <p style="font-size:0.95rem; color:var(--text-main);">${data.remarks || 'None'}</p>
             </div>
-             <!-- INJECTED MOBILE ACTIONS -->
             <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
                 ${txControls}
             </div>
@@ -910,8 +911,9 @@ async function loadTransactions(isAppend = false) {
             hasMoreTx = true;
         }
         
-// Remove !inner to prevent the query from crashing if a student was deleted
-let query = supabaseClient.from('transactions').select('*, students(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });        if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
+        let query = supabaseClient.from('transactions').select('*, students(name, level)', { count: 'exact' }).order('transaction_date', { ascending: false });        
+        
+        if (userRole === 'staff') query = query.eq('created_by', currentUser.id);
         if(startDate) query = query.gte('transaction_date', startDate);
         if(endDate) query = query.lte('transaction_date', endDate);
         if(payMode) query = query.eq('payment_mode', payMode);
@@ -924,9 +926,9 @@ let query = supabaseClient.from('transactions').select('*, students(name, level)
         
         if (!isAppend) showLoader(true);
         const { data, count, error } = await query;
-        if (!isAppend) showLoader(false);
-
+        
         if (error) {
+            if (!isAppend) showLoader(false);
             if (error.code === 'PGRST103') {
                 txPage = 1;
                 isFetchingTx = false;
@@ -935,31 +937,47 @@ let query = supabaseClient.from('transactions').select('*, students(name, level)
             throw new Error(error.message); 
         }
 
+        // --- FAILSAFE: If Supabase Join is broken, manually fetch and attach students ---
+        let finalData = data || [];
+        if (finalData.length > 0 && finalData[0].students === null) {
+            const studentIds = [...new Set(finalData.map(t => t.student_id).filter(id => id))];
+            if (studentIds.length > 0) {
+                const { data: stdData } = await supabaseClient.from('students').select('id, name, level').in('id', studentIds);
+                const stdMap = {};
+                if (stdData) stdData.forEach(s => stdMap[s.id] = s);
+                finalData = finalData.map(t => ({
+                    ...t,
+                    students: stdMap[t.student_id] || { name: 'Unknown Student', level: 'General' }
+                }));
+            }
+        }
+        
+        if (!isAppend) showLoader(false);
+
         const tbody = document.getElementById('ledger-body');
         if (!isAppend) tbody.innerHTML = '';
         
-        if (data) {
-            if (data.length < PAGE_LIMIT_TX) {
+        if (finalData) {
+            if (finalData.length < PAGE_LIMIT_TX) {
                 hasMoreTx = false;
             }
 
             const totalPages = Math.ceil((count || 0) / PAGE_LIMIT_TX) || 1;
             document.getElementById('tx-page-info').innerText = `Page ${txPage} of ${totalPages}`;
 
-            if(data.length === 0 && !isAppend) {
+            if(finalData.length === 0 && !isAppend) {
                 tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-muted);">No transactions found.</td></tr>`;
                 isFetchingTx = false;
                 return;
             }
 
-            data.forEach((tx, index) => {
+            finalData.forEach((tx, index) => {
                 const badgeClass = tx.transaction_type === 'credit' ? 'badge-credit' : 'badge-debit';
                 const displayMode = tx.payment_mode || 'Cash';
                 const currentStatus = tx.status || 'verified';
                 const statusBadgeClass = currentStatus === 'pending' ? 'badge-pending' : (currentStatus === 'rejected' ? 'badge-rejected' : 'badge-verified');
                 const delay = index * 0.05;
                 
-                // SAFE PARSING: Prevents crashes from missing students or weird text characters
                 const studentName = tx.students?.name || 'Unknown Student';
                 const safeRemarks = (tx.remarks || '').replace(/'/g, "\\'").replace(/\n/g, '\\n');
                 
